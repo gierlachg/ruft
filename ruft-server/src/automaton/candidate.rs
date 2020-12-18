@@ -48,7 +48,7 @@ impl<'a, R: Relay> Candidate<'a, R> {
                                 VoteRequest { term, candidate_id } => self.on_vote_request(term, candidate_id).await,
                                 VoteResponse { term, vote_granted } => self.on_vote_response(term, vote_granted),
                             } {
-                                return Some(state);
+                                return Some(state)
                             }
                         }
                         None => break

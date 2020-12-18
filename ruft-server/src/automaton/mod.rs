@@ -3,12 +3,12 @@ use std::error::Error;
 use log::info;
 use tokio::time::Duration;
 
+use crate::{Endpoint, Id};
 use crate::automaton::candidate::Candidate;
 use crate::automaton::follower::Follower;
 use crate::automaton::leader::Leader;
 use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER};
 use crate::network::Cluster;
-use crate::{Endpoint, Id};
 
 mod candidate;
 mod follower;
@@ -37,35 +37,23 @@ impl Automaton {
         };
         info!("Starting as: {:?}", state);
         loop {
-            match state {
-                FOLLOWER { id, term, leader_id } => {
-                    match Follower::init(id, term, leader_id, &mut cluster, FOLLOWER_HEARTBEAT_TIMEOUT)
+            state = match match state {
+                FOLLOWER { id, term, leader_id } =>
+                    Follower::init(id, term, leader_id, &mut cluster, FOLLOWER_HEARTBEAT_TIMEOUT)
                         .run()
-                        .await
-                    {
-                        Some(s) => state = s,
-                        None => break,
-                    }
-                }
-                LEADER { id, term } => {
-                    match Leader::init(id, term, &mut cluster, LEADER_HEARTBEAT_INTERVAL)
+                        .await,
+                LEADER { id, term } =>
+                    Leader::init(id, term, &mut cluster, LEADER_HEARTBEAT_INTERVAL)
                         .run()
-                        .await
-                    {
-                        Some(s) => state = s,
-                        None => break,
-                    }
-                }
-                CANDIDATE { id, term } => {
-                    match Candidate::init(id, term, &mut cluster, CANDIDATE_ELECTION_TIMEOUT)
+                        .await,
+                CANDIDATE { id, term } =>
+                    Candidate::init(id, term, &mut cluster, CANDIDATE_ELECTION_TIMEOUT)
                         .run()
-                        .await
-                    {
-                        Some(s) => state = s,
-                        None => break,
-                    }
-                }
-            }
+                        .await,
+            } {
+                Some(state) => state,
+                None => break,
+            };
             info!("Switching over to: {:?}", state);
         }
         Ok(())
