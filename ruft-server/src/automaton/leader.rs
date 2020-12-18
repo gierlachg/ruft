@@ -37,23 +37,23 @@ impl<'a, R: Relay> Leader<'a, R> {
                         Some(message) => {
                             match message {
                                 AppendRequest { term, leader_id } => {
-                                    if let Some(status) = self.on_append_request(term, leader_id).await {
-                                        return Some(status)
+                                    if let Some(state) = self.on_append_request(term, leader_id).await {
+                                        return Some(state)
                                     }
                                 }
                                 AppendResponse { term, success: _ } => {
-                                    if let Some(status) = self.on_append_response(term) {
-                                        return Some(status)
+                                    if let Some(state) = self.on_append_response(term) {
+                                        return Some(state)
                                     }
                                 }
                                 VoteRequest {term, candidate_id} => {
-                                    if let Some(status) = self.on_vote_request(term, candidate_id).await {
-                                        return Some(status)
+                                    if let Some(state) = self.on_vote_request(term, candidate_id).await {
+                                        return Some(state)
                                     }
                                 }
                                 VoteResponse { term, vote_granted: _ } => {
-                                    if let Some(status) = self.on_vote_response(term) {
-                                        return Some(status)
+                                    if let Some(state) = self.on_vote_response(term) {
+                                        return Some(state)
                                     }
                                 }
                             }
