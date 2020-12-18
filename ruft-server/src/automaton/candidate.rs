@@ -4,9 +4,9 @@ use time::Instant;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
+use crate::Id;
 use crate::network::Relay;
 use crate::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
-use crate::Id;
 
 pub(crate) struct Candidate<'a, R: Relay> {
     id: Id,
@@ -42,27 +42,13 @@ impl<'a, R: Relay> Candidate<'a, R> {
                 message = self.relay.receive() => {
                     match message {
                         Some(message) => {
-                            match message {
-                                AppendRequest { term, leader_id } => {
-                                    if let Some(state) = self.on_append_request(term, leader_id).await {
-                                        return Some(state)
-                                    }
-                                }
-                                AppendResponse { term, success: _ } => {
-                                    if let Some(state) = self.on_append_response(term) {
-                                        return Some(state)
-                                    }
-                                }
-                                VoteRequest { term, candidate_id } => {
-                                    if let Some(state) = self.on_vote_request(term, candidate_id).await {
-                                        return Some(state)
-                                    }
-                                }
-                                VoteResponse { term, vote_granted } => {
-                                    if let Some(state) = self.on_vote_response(term, vote_granted) {
-                                        return Some(state)
-                                    }
-                                }
+                            if let Some (state) = match message {
+                                AppendRequest { term, leader_id } => self.on_append_request(term, leader_id).await,
+                                AppendResponse { term, success: _ } => self.on_append_response(term),
+                                VoteRequest { term, candidate_id } => self.on_vote_request(term, candidate_id).await,
+                                VoteResponse { term, vote_granted } => self.on_vote_response(term, vote_granted),
+                            } {
+                                return Some(state);
                             }
                         }
                         None => break
@@ -147,8 +133,8 @@ mod tests {
     use predicate::eq;
     use tokio::time::Duration;
 
-    use crate::protocol::Message;
     use crate::Id;
+    use crate::protocol::Message;
 
     use super::*;
 
@@ -168,7 +154,7 @@ mod tests {
             Some(State::FOLLOWER {
                 id: LOCAL_ID,
                 term: LOCAL_TERM,
-                leader_id: Some(PEER_ID)
+                leader_id: Some(PEER_ID),
             })
         );
     }
@@ -197,7 +183,7 @@ mod tests {
             Some(State::FOLLOWER {
                 id: LOCAL_ID,
                 term: LOCAL_TERM + 1,
-                leader_id: None
+                leader_id: None,
             })
         );
     }
@@ -222,7 +208,7 @@ mod tests {
             Some(State::FOLLOWER {
                 id: LOCAL_ID,
                 term: LOCAL_TERM + 1,
-                leader_id: None
+                leader_id: None,
             })
         );
     }
@@ -251,7 +237,7 @@ mod tests {
             Some(State::FOLLOWER {
                 id: LOCAL_ID,
                 term: LOCAL_TERM + 1,
-                leader_id: None
+                leader_id: None,
             })
         );
     }
@@ -287,7 +273,7 @@ mod tests {
             state,
             Some(State::LEADER {
                 id: LOCAL_ID,
-                term: LOCAL_TERM
+                term: LOCAL_TERM,
             })
         );
     }
