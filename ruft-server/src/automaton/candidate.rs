@@ -8,7 +8,7 @@ use crate::network::Relay;
 use crate::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::Id;
 
-pub(crate) struct Candidate<'a, R: Relay> {
+pub(super) struct Candidate<'a, R: Relay> {
     id: Id,
     term: u64,
     granted_votes: usize,

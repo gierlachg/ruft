@@ -19,7 +19,7 @@ const RECONNECT_INTERVAL_MILLIS: u64 = 1_000;
 
 #[derive(Display)]
 #[display(fmt = "{}", endpoint)]
-pub(crate) struct Egress {
+pub(super) struct Egress {
     endpoint: Endpoint,
     writer: Arc<Mutex<Option<Writer>>>,
 }
@@ -66,7 +66,7 @@ impl Egress {
     }
 }
 
-pub(crate) struct Ingress {
+pub(super) struct Ingress {
     messages: UnboundedReceiver<Bytes>,
 }
 

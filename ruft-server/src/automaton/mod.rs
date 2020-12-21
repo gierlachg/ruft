@@ -19,10 +19,10 @@ mod leader;
 const HEARTBEAT_INTERVAL_MILLIS: u64 = 20;
 const ELECTION_TIMEOUT_BASE_MILLIS: u64 = 250;
 
-pub(crate) struct Automaton {}
+pub(super) struct Automaton {}
 
 impl Automaton {
-    pub(crate) async fn run(
+    pub(super) async fn run(
         local_endpoint: Endpoint,
         remote_endpoints: Vec<Endpoint>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {

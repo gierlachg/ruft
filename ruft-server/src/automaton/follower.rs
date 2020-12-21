@@ -5,7 +5,7 @@ use crate::network::Relay;
 use crate::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::Id;
 
-pub(crate) struct Follower<'a, R: Relay> {
+pub(super) struct Follower<'a, R: Relay> {
     id: Id,
     term: u64,
     leader_id: Option<Id>,

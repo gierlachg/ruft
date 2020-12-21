@@ -7,7 +7,7 @@ use crate::Id;
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
-pub(crate) struct Leader<'a, R: Relay> {
+pub(super) struct Leader<'a, R: Relay> {
     id: Id,
     term: u64,
     relay: &'a mut R,
