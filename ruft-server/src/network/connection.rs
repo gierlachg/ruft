@@ -14,7 +14,7 @@ use tokio::time::Duration;
 use crate::network::tcp::{Listener, Reader, Writer};
 use crate::{Endpoint, Id};
 
-// TODO: configurable ?
+// TODO: configurable
 const RECONNECT_INTERVAL_MILLIS: u64 = 1_000;
 
 #[derive(Display)]

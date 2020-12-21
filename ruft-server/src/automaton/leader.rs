@@ -1,9 +1,9 @@
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::Id;
 use crate::network::Relay;
 use crate::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::Id;
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
@@ -118,8 +118,8 @@ mod tests {
     use predicate::eq;
     use tokio::time::Duration;
 
-    use crate::Id;
     use crate::protocol::Message;
+    use crate::Id;
 
     use super::*;
 

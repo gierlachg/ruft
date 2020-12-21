@@ -4,9 +4,9 @@ use time::Instant;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::Id;
 use crate::network::Relay;
 use crate::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::Id;
 
 pub(crate) struct Candidate<'a, R: Relay> {
     id: Id,
@@ -133,8 +133,8 @@ mod tests {
     use predicate::eq;
     use tokio::time::Duration;
 
-    use crate::Id;
     use crate::protocol::Message;
+    use crate::Id;
 
     use super::*;
 

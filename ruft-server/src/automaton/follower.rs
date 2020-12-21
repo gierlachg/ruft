@@ -11,23 +11,17 @@ pub(crate) struct Follower<'a, R: Relay> {
     leader_id: Option<Id>,
     relay: &'a mut R,
 
-    heartbeat_timeout: Duration,
+    election_timeout: Duration,
 }
 
 impl<'a, R: Relay> Follower<'a, R> {
-    pub(super) fn init(
-        id: Id,
-        term: u64,
-        leader_id: Option<Id>,
-        relay: &'a mut R,
-        heartbeat_timeout: Duration,
-    ) -> Self {
+    pub(super) fn init(id: Id, term: u64, leader_id: Option<Id>, relay: &'a mut R, election_timeout: Duration) -> Self {
         Follower {
             id,
             term,
             leader_id,
             relay,
-            heartbeat_timeout,
+            election_timeout,
         }
     }
 
@@ -35,7 +29,7 @@ impl<'a, R: Relay> Follower<'a, R> {
         loop {
             tokio::select! {
                 // TODO: uninterrupted timer for AppendRQ ???
-                _ = time::sleep(self.heartbeat_timeout) => {
+                _ = time::sleep(self.election_timeout) => {
                     return Some(State::CANDIDATE{id: self.id, term: self.term})
                 }
                 message = self.relay.receive() => {
