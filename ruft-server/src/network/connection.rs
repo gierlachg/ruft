@@ -5,7 +5,6 @@ use bytes::Bytes;
 use derive_more::Display;
 use log::{error, trace};
 use tokio::signal;
-use tokio::stream::StreamExt;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{mpsc, watch, Mutex};
 use tokio::time;
@@ -119,6 +118,6 @@ impl Ingress {
     }
 
     pub(super) async fn next(&mut self) -> Option<Bytes> {
-        self.messages.next().await
+        self.messages.recv().await
     }
 }

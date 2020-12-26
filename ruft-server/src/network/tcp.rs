@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use bytes::{Bytes, BytesMut};
 use futures::SinkExt;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::stream::StreamExt;
+use tokio_stream::StreamExt;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 const LENGTH_FIELD_OFFSET: usize = 0;

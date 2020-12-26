@@ -1,5 +1,3 @@
-#![feature(extend_one)]
-
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
 use std::error::Error;
@@ -115,7 +113,7 @@ impl Endpoint {
 // TODO: better id assignment...
 fn to_endpoints(local_endpoint: SocketAddr, remote_endpoints: Vec<SocketAddr>) -> (Endpoint, Vec<Endpoint>) {
     let mut endpoints = BTreeSet::new();
-    endpoints.extend_one(local_endpoint);
+    endpoints.insert(local_endpoint);
     endpoints.extend(remote_endpoints.into_iter());
 
     assert!(
