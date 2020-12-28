@@ -70,7 +70,6 @@ impl<'a, R: Relay> Candidate<'a, R> {
             self.relay
                 .send(&leader_id, Message::append_response(self.term, false))
                 .await;
-
             None
         }
     }
@@ -98,7 +97,6 @@ impl<'a, R: Relay> Candidate<'a, R> {
             self.relay
                 .send(&candidate_id, Message::vote_response(self.term, false))
                 .await;
-
             None
         }
     }
@@ -144,7 +142,23 @@ mod tests {
     const LOCAL_TERM: u64 = 10;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn when_append_request_term_greater_or_equal_then_switch_to_follower() {
+    async fn when_append_request_term_greater_then_switch_to_follower() {
+        let mut relay = MockRelay::new();
+        let mut candidate = candidate(&mut relay);
+
+        let state = candidate.on_append_request(LOCAL_TERM + 1, PEER_ID).await;
+        assert_eq!(
+            state,
+            Some(State::FOLLOWER {
+                id: LOCAL_ID,
+                term: LOCAL_TERM + 1,
+                leader_id: Some(PEER_ID),
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn when_append_request_term_equal_then_switch_to_follower() {
         let mut relay = MockRelay::new();
         let mut candidate = candidate(&mut relay);
 
@@ -189,11 +203,20 @@ mod tests {
     }
 
     #[test]
-    fn when_append_response_term_less_or_equal_then_ignore() {
+    fn when_append_response_term_equal_then_ignore() {
         let mut relay = MockRelay::new();
         let mut candidate = candidate(&mut relay);
 
         let state = candidate.on_append_response(LOCAL_TERM);
+        assert_eq!(state, None);
+    }
+
+    #[test]
+    fn when_append_response_term_less_then_ignore() {
+        let mut relay = MockRelay::new();
+        let mut candidate = candidate(&mut relay);
+
+        let state = candidate.on_append_response(LOCAL_TERM - 1);
         assert_eq!(state, None);
     }
 
@@ -214,7 +237,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn when_vote_request_term_less_or_equal_then_respond() {
+    async fn when_vote_request_term_equal_then_respond() {
         let mut relay = MockRelay::new();
         relay
             .expect_send()
@@ -223,6 +246,19 @@ mod tests {
         let mut candidate = candidate(&mut relay);
 
         let state = candidate.on_vote_request(LOCAL_TERM, PEER_ID).await;
+        assert_eq!(state, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn when_vote_request_term_less_then_respond() {
+        let mut relay = MockRelay::new();
+        relay
+            .expect_send()
+            .with(eq(PEER_ID), eq(Message::vote_response(LOCAL_TERM, false)))
+            .return_const(());
+        let mut candidate = candidate(&mut relay);
+
+        let state = candidate.on_vote_request(LOCAL_TERM - 1, PEER_ID).await;
         assert_eq!(state, None);
     }
 
@@ -243,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn when_vote_response_term_equal_but_vote_not_granted_then_ignore() {
+    fn when_vote_response_term_equal_vote_not_granted_then_ignore() {
         let mut relay = MockRelay::new();
         let mut candidate = candidate(&mut relay);
 
@@ -252,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn when_vote_response_term_equal_vote_granted_but_quorum_not_reached_then_continue() {
+    fn when_vote_response_term_equal_vote_granted_quorum_not_reached_then_ignore() {
         let mut relay = MockRelay::new();
         relay.expect_size().return_const(3usize);
         let mut candidate = candidate(&mut relay);
@@ -262,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn when_vote_response_term_equal_vote_granted_and_quorum_reached_then_switch_to_leader() {
+    fn when_vote_response_term_equal_vote_granted_quorum_reached_then_switch_to_leader() {
         let mut relay = MockRelay::new();
         relay.expect_size().times(2).return_const(3usize);
         let mut candidate = candidate(&mut relay);
