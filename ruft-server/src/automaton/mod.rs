@@ -1,15 +1,16 @@
 use std::error::Error;
 
 use log::info;
+use rand::Rng;
 use tokio::time::Duration;
 
 use crate::automaton::candidate::Candidate;
 use crate::automaton::follower::Follower;
 use crate::automaton::leader::Leader;
 use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER};
-use crate::network::Cluster;
+use crate::network::PhysicalCluster;
+use crate::storage::volatile::VolatileStorage;
 use crate::{Endpoint, Id};
-use rand::Rng;
 
 mod candidate;
 mod follower;
@@ -31,7 +32,11 @@ impl Automaton {
             Duration::from_millis(ELECTION_TIMEOUT_BASE_MILLIS + rand::thread_rng().gen_range(0..=250));
 
         let id = local_endpoint.id();
-        let mut cluster = Cluster::init(local_endpoint, remote_endpoints).await?;
+
+        let mut storage = VolatileStorage::init();
+        info!("Using {} storage", &storage);
+
+        let mut cluster = PhysicalCluster::init(local_endpoint, remote_endpoints).await?;
         info!("{}", &cluster);
 
         let mut state = State::FOLLOWER {
@@ -43,11 +48,15 @@ impl Automaton {
         loop {
             state = match match state {
                 FOLLOWER { id, term, leader_id } => {
-                    Follower::init(id, term, leader_id, &mut cluster, election_timeout)
+                    Follower::init(id, term, leader_id, &mut storage, &mut cluster, election_timeout)
                         .run()
                         .await
                 }
-                LEADER { id, term } => Leader::init(id, term, &mut cluster, heartbeat_interval).run().await,
+                LEADER { id, term } => {
+                    Leader::init(id, term, &mut storage, &mut cluster, heartbeat_interval)
+                        .run()
+                        .await
+                }
                 CANDIDATE { id, term } => Candidate::init(id, term, &mut cluster, election_timeout).run().await,
             } {
                 Some(state) => state,

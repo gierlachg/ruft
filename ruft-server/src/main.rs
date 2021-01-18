@@ -1,3 +1,5 @@
+#![feature(map_first_last)]
+
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
 use std::error::Error;
@@ -18,6 +20,7 @@ use crate::automaton::Automaton;
 mod automaton;
 mod network;
 mod protocol;
+mod storage;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const LOCAL_ENDPOINT: &str = "local endpoint";

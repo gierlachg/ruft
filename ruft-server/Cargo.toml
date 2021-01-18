@@ -17,12 +17,12 @@ async-trait = "0.1.42"
 
 rand = "0.8.0"
 
-bytes = "1.0.0"
+bytes = "1.0.1"
 
-tokio = { version = "1.0.1", features = ["full"] }
-tokio-util = { version = "0.6.0", features = ["full"] }
-tokio-stream = "0.1.0"
-futures = "0.3.8"
+tokio = { version = "1.0.2", features = ["full"] }
+tokio-util = { version = "0.6.1", features = ["full"] }
+tokio-stream = "0.1.2"
+futures = "0.3.11"
 
 [dev-dependencies]
 mockall = "0.8.3"

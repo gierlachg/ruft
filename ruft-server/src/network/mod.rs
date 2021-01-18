@@ -15,22 +15,24 @@ mod connection;
 mod tcp;
 
 #[async_trait]
-pub(crate) trait Relay {
+pub(crate) trait Cluster {
+    fn ids(&self) -> Vec<Id>; // TODO:
+
+    fn size(&self) -> usize;
+
     async fn send(&mut self, member_id: &Id, message: Message);
 
     async fn broadcast(&mut self, message: Message);
 
     async fn receive(&mut self) -> Option<Message>;
-
-    fn size(&self) -> usize;
 }
 
-pub(crate) struct Cluster {
+pub(crate) struct PhysicalCluster {
     egresses: HashMap<Id, Egress>,
     ingress: Ingress,
 }
 
-impl Cluster {
+impl PhysicalCluster {
     pub(crate) async fn init(
         local_endpoint: Endpoint,
         remote_endpoints: Vec<Endpoint>,
@@ -47,16 +49,25 @@ impl Cluster {
 
         let ingress = Ingress::bind(local_endpoint).await?;
 
-        Ok(Cluster { egresses, ingress })
+        Ok(PhysicalCluster { egresses, ingress })
     }
 }
 
 #[async_trait]
-impl Relay for Cluster {
-    async fn send(&mut self, member_id: &Id, message: Message) {
-        let message = message.into();
+impl Cluster for PhysicalCluster {
+    fn ids(&self) -> Vec<Id> {
+        self.egresses.keys().map(|id| id.clone()).collect()
+    }
 
-        self.egresses.get_mut(member_id).unwrap().send(message).await;
+    fn size(&self) -> usize {
+        self.egresses.len()
+    }
+
+    async fn send(&mut self, member_id: &Id, message: Message) {
+        match self.egresses.get_mut(&member_id) {
+            Some(egress) => egress.send(message.into()).await,
+            None => panic!("Missing member of id: {}", member_id),
+        }
     }
 
     async fn broadcast(&mut self, message: Message) {
@@ -73,13 +84,9 @@ impl Relay for Cluster {
     async fn receive(&mut self) -> Option<Message> {
         self.ingress.next().await.map(Message::from)
     }
-
-    fn size(&self) -> usize {
-        self.egresses.len()
-    }
 }
 
-impl Display for Cluster {
+impl Display for PhysicalCluster {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
@@ -89,7 +96,7 @@ impl Display for Cluster {
         \t{}\n\
         ]\n\
          ",
-            self.egresses.len(),
+            self.egresses.len(), // TODO:
             self.egresses
                 .values()
                 .map(|egress| egress.to_string())

@@ -14,7 +14,7 @@ use crate::network::tcp::{Listener, Reader, Writer};
 use crate::{Endpoint, Id};
 
 // TODO: configurable
-const RECONNECT_INTERVAL_MILLIS: u64 = 1_000;
+const RECONNECT_INTERVAL_MILLIS: u64 = 100;
 
 #[derive(Display)]
 #[display(fmt = "{}", endpoint)]
@@ -65,13 +65,16 @@ impl Egress {
     }
 }
 
+#[derive(Display)]
+#[display(fmt = "{}", endpoint)]
 pub(super) struct Ingress {
+    endpoint: Endpoint,
     messages: UnboundedReceiver<Bytes>,
 }
 
 impl Ingress {
-    pub(super) async fn bind(local_endpoint: Endpoint) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let mut listener = Listener::bind(local_endpoint.address()).await?;
+    pub(super) async fn bind(endpoint: Endpoint) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let mut listener = Listener::bind(endpoint.address()).await?;
 
         let (tx, rx) = mpsc::unbounded_channel();
         tokio::spawn(async move {
@@ -91,7 +94,7 @@ impl Ingress {
                 }
             }
         });
-        Ok(Ingress { messages: rx })
+        Ok(Ingress { endpoint, messages: rx })
     }
 
     fn on_connection(mut reader: Reader, sender: mpsc::UnboundedSender<Bytes>, mut shutdown: watch::Receiver<()>) {
