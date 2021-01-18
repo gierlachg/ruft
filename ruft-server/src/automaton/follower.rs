@@ -39,6 +39,7 @@ impl<'a, S: Storage, C: Cluster> Follower<'a, S, C> {
 
     pub(super) async fn run(&mut self) -> Option<State> {
         loop {
+            // TODO: replace select! with something that actually works (!sic) here
             tokio::select! {
                 _ = time::sleep(self.election_timeout) => {
                     return Some(State::CANDIDATE{id: self.id, term: self.term})

@@ -53,6 +53,7 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
 
         let mut ticker = time::interval(self.heartbeat_interval);
         loop {
+            // TODO: replace select! with something that actually works (!sic) here
             tokio::select! {
                 _ = ticker.tick() => {
                     self.on_tick().await;

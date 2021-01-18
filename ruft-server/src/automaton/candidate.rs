@@ -34,6 +34,7 @@ impl<'a, C: Cluster> Candidate<'a, C> {
             self.granted_votes = 1;
             self.cluster.broadcast(Message::vote_request(self.id, self.term)).await;
 
+            // TODO: replace select! with something that actually works (!sic) here
             tokio::select! {
                 _ = ticker.tick() => {
                     // election timed out
