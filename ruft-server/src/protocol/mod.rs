@@ -39,8 +39,17 @@ pub(crate) enum Message {
         position: Position,
     },
 
-    #[display(fmt = "VoteRequest {{ candidate_id: {}, term: {} }}", candidate_id, term)]
-    VoteRequest { candidate_id: Id, term: u64 },
+    #[display(
+        fmt = "VoteRequest {{ candidate_id: {}, term: {}, position: {:?} }}",
+        candidate_id,
+        term,
+        position
+    )]
+    VoteRequest {
+        candidate_id: Id,
+        term: u64,
+        position: Position,
+    },
 
     #[display(fmt = "VoteResponse {{ term: {}, vote_granted: {} }}", vote_granted, term)]
     VoteResponse { vote_granted: bool, term: u64 },
@@ -64,8 +73,12 @@ impl Message {
         }
     }
 
-    pub(crate) fn vote_request(candidate_id: Id, term: u64) -> Self {
-        VoteRequest { candidate_id, term }
+    pub(crate) fn vote_request(candidate_id: Id, term: u64, position: Position) -> Self {
+        VoteRequest {
+            candidate_id,
+            term,
+            position,
+        }
     }
 
     pub(crate) fn vote_response(vote_granted: bool, term: u64) -> Self {
@@ -105,10 +118,16 @@ impl Into<Bytes> for Message {
                 bytes.put_u64_le(position.term());
                 bytes.put_u64_le(position.index());
             }
-            VoteRequest { term, candidate_id } => {
+            VoteRequest {
+                candidate_id,
+                term,
+                position,
+            } => {
                 bytes.put_u16_le(VOTE_REQUEST_MESSAGE_ID);
                 bytes.put_u8(candidate_id);
                 bytes.put_u64_le(term);
+                bytes.put_u64_le(position.term());
+                bytes.put_u64_le(position.index());
             }
             VoteResponse { term, vote_granted } => {
                 bytes.put_u16_le(VOTE_RESPONSE_MESSAGE_ID);
@@ -150,6 +169,7 @@ impl From<Bytes> for Message {
             VOTE_REQUEST_MESSAGE_ID => VoteRequest {
                 candidate_id: bytes.get_u8(),
                 term: bytes.get_u64_le(),
+                position: Position::of(bytes.get_u64_le(), bytes.get_u64_le()),
             },
             VOTE_RESPONSE_MESSAGE_ID => VoteResponse {
                 vote_granted: bytes.get_u8() == 1,
@@ -207,6 +227,7 @@ mod tests {
         let bytes: Bytes = VoteRequest {
             candidate_id: 1,
             term: 128,
+            position: Position::of(10, 10),
         }
         .into();
         assert_eq!(
@@ -214,6 +235,7 @@ mod tests {
             VoteRequest {
                 candidate_id: 1,
                 term: 128,
+                position: Position::of(10, 10),
             }
         );
     }

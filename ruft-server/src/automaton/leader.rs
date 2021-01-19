@@ -53,7 +53,6 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
 
         let mut ticker = time::interval(self.heartbeat_interval);
         loop {
-            // TODO: replace select! with something that actually works (!sic) here
             tokio::select! {
                 _ = ticker.tick() => {
                     self.on_tick().await;
@@ -68,7 +67,9 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                                 AppendResponse { member_id, success, position } => {
                                     self.on_append_response(member_id, success, position).await
                                 }
-                                VoteRequest {candidate_id, term} => self.on_vote_request(candidate_id, term).await,
+                                VoteRequest { candidate_id, term, position: _ } => {
+                                    self.on_vote_request(candidate_id, term).await
+                                }
                                 VoteResponse { vote_granted: _, term: _ } => None,
                             } {
                                 return Some(state)
@@ -114,6 +115,7 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                 id: self.id,
                 term,
                 leader_id: Some(leader_id),
+                voted_for: None,
             })
         } else if term == self.term {
             panic!("Double leader detected - term: {}, leader id: {}", term, leader_id);
@@ -134,6 +136,7 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                 id: self.id,
                 term: position.term(),
                 leader_id: None,
+                voted_for: None,
             })
         } else if success {
             if position == *self.storage.head() {
@@ -195,6 +198,7 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                 id: self.id,
                 term,
                 leader_id: None,
+                voted_for: None,
             })
         } else {
             self.cluster
@@ -257,6 +261,7 @@ mod tests {
                 id: LOCAL_ID,
                 term: LOCAL_TERM + 1,
                 leader_id: Some(PEER_ID),
+                voted_for: None,
             })
         );
     }
@@ -309,6 +314,7 @@ mod tests {
                 id: LOCAL_ID,
                 term: LOCAL_TERM + 1,
                 leader_id: None,
+                voted_for: None,
             })
         );
     }
@@ -343,6 +349,7 @@ mod tests {
                 id: LOCAL_ID,
                 term: LOCAL_TERM + 1,
                 leader_id: None,
+                voted_for: None,
             })
         );
     }

@@ -43,21 +43,39 @@ impl Automaton {
             id,
             term: 0,
             leader_id: None,
+            voted_for: None,
         };
         info!("Starting as: {:?}", state);
         loop {
             state = match match state {
-                FOLLOWER { id, term, leader_id } => {
-                    Follower::init(id, term, leader_id, &mut storage, &mut cluster, election_timeout)
-                        .run()
-                        .await
+                FOLLOWER {
+                    id,
+                    term,
+                    leader_id,
+                    voted_for,
+                } => {
+                    Follower::init(
+                        id,
+                        term,
+                        leader_id,
+                        voted_for,
+                        &mut storage,
+                        &mut cluster,
+                        election_timeout,
+                    )
+                    .run()
+                    .await
                 }
                 LEADER { id, term } => {
                     Leader::init(id, term, &mut storage, &mut cluster, heartbeat_interval)
                         .run()
                         .await
                 }
-                CANDIDATE { id, term } => Candidate::init(id, term, &mut cluster, election_timeout).run().await,
+                CANDIDATE { id, term } => {
+                    Candidate::init(id, term, &mut storage, &mut cluster, election_timeout)
+                        .run()
+                        .await
+                }
             } {
                 Some(state) => state,
                 None => break,
@@ -70,7 +88,18 @@ impl Automaton {
 
 #[derive(Eq, PartialEq, Debug)]
 enum State {
-    LEADER { id: Id, term: u64 },
-    FOLLOWER { id: Id, term: u64, leader_id: Option<Id> },
-    CANDIDATE { id: Id, term: u64 },
+    LEADER {
+        id: Id,
+        term: u64,
+    },
+    FOLLOWER {
+        id: Id,
+        term: u64,
+        leader_id: Option<Id>,
+        voted_for: Option<Id>,
+    },
+    CANDIDATE {
+        id: Id,
+        term: u64,
+    },
 }
