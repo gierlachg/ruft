@@ -323,7 +323,7 @@ mod tests {
         Cluster {}
         #[async_trait]
         trait Cluster {
-            fn ids(&self) ->  Vec<Id>;
+            fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
             async fn send(&mut self, member_id: &Id, message: Message);
             async fn broadcast(&mut self, message: Message);

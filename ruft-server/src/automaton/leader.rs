@@ -30,7 +30,7 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
         heartbeat_interval: Duration,
     ) -> Self {
         let trackers = cluster
-            .ids()
+            .member_ids()
             .into_iter()
             .map(|id| (id, Tracker::new(Position::of(term, 0))))
             .collect::<HashMap<Id, Tracker>>();
@@ -251,7 +251,7 @@ mod tests {
     async fn when_append_request_term_greater_then_switch_to_follower() {
         let mut storage = MockStorage::new();
         let mut cluster = MockCluster::new();
-        cluster.expect_ids().return_const(vec![PEER_ID]);
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
         let mut leader = leader(&mut storage, &mut cluster);
 
         let state = leader.on_append_request(PEER_ID, LOCAL_TERM + 1).await;
@@ -271,7 +271,7 @@ mod tests {
     async fn when_append_request_term_equal_then_panics() {
         let mut storage = MockStorage::new();
         let mut cluster = MockCluster::new();
-        cluster.expect_ids().return_const(vec![PEER_ID]);
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
         let mut leader = leader(&mut storage, &mut cluster);
 
         leader.on_append_request(PEER_ID, LOCAL_TERM).await;
@@ -284,7 +284,7 @@ mod tests {
         let mut storage = MockStorage::new();
         storage.expect_head().return_const(current_position);
         let mut cluster = MockCluster::new();
-        cluster.expect_ids().return_const(vec![PEER_ID]);
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
             .with(
@@ -302,7 +302,7 @@ mod tests {
     async fn when_append_response_term_greater_then_switch_to_follower() {
         let mut storage = MockStorage::new();
         let mut cluster = MockCluster::new();
-        cluster.expect_ids().return_const(vec![PEER_ID]);
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
         let mut leader = leader(&mut storage, &mut cluster);
 
         let state = leader
@@ -326,7 +326,7 @@ mod tests {
         let mut storage = MockStorage::new();
         storage.expect_head().return_const(current_position);
         let mut cluster = MockCluster::new();
-        cluster.expect_ids().return_const(vec![PEER_ID]);
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
         let mut leader = leader(&mut storage, &mut cluster);
 
         let state = leader.on_append_response(PEER_ID, true, current_position).await;
@@ -339,7 +339,7 @@ mod tests {
     async fn when_vote_request_term_greater_then_switch_to_follower() {
         let mut storage = MockStorage::new();
         let mut cluster = MockCluster::new();
-        cluster.expect_ids().return_const(vec![PEER_ID]);
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
         let mut leader = leader(&mut storage, &mut cluster);
 
         let state = leader.on_vote_request(PEER_ID, LOCAL_TERM + 1).await;
@@ -358,7 +358,7 @@ mod tests {
     async fn when_vote_request_term_less_or_equal_then_respond() {
         let mut storage = MockStorage::new();
         let mut cluster = MockCluster::new();
-        cluster.expect_ids().return_const(vec![PEER_ID]);
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
             .with(eq(PEER_ID), eq(Message::vote_response(false, LOCAL_TERM)))
@@ -395,7 +395,7 @@ mod tests {
         Cluster {}
         #[async_trait]
         trait Cluster {
-            fn ids(&self) ->  Vec<Id>;
+            fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
             async fn send(&mut self, member_id: &Id, message: Message);
             async fn broadcast(&mut self, message: Message);

@@ -16,7 +16,7 @@ mod tcp;
 
 #[async_trait]
 pub(crate) trait Cluster {
-    fn ids(&self) -> Vec<Id>; // TODO:
+    fn member_ids(&self) -> Vec<Id>;
 
     fn size(&self) -> usize;
 
@@ -55,7 +55,7 @@ impl PhysicalCluster {
 
 #[async_trait]
 impl Cluster for PhysicalCluster {
-    fn ids(&self) -> Vec<Id> {
+    fn member_ids(&self) -> Vec<Id> {
         self.egresses.keys().map(|id| id.clone()).collect()
     }
 
