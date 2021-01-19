@@ -101,9 +101,19 @@ impl Into<Bytes> for Message {
                 bytes.put_u64_le(preceding_position.term());
                 bytes.put_u64_le(preceding_position.index());
                 bytes.put_u64_le(term);
-                bytes.put_u32_le(entries.len().try_into().expect("Unable to convert")); // TODO:
+                bytes.put_u32_le(
+                    entries
+                        .len()
+                        .try_into()
+                        .expect(&format!("Unable to convert: {}", entries.len())),
+                );
                 entries.iter().for_each(|entry| {
-                    bytes.put_u32_le(entry.len().try_into().expect("Unable to convert")); // TODO:
+                    bytes.put_u32_le(
+                        entry
+                            .len()
+                            .try_into()
+                            .expect(&format!("Unable to convert: {}", entry.len())),
+                    );
                     bytes.put(entry.as_ref());
                 });
             }
@@ -147,10 +157,11 @@ impl From<Bytes> for Message {
                 let leader_id = bytes.get_u8();
                 let preceding_position = Position::of(bytes.get_u64_le(), bytes.get_u64_le());
                 let term = bytes.get_u64_le();
-                let entries = (0..bytes.get_u32_le().try_into().expect("Unable to convert"))
+                let entries = (0..bytes.get_u32_le())
                     .into_iter()
                     .map(|_| {
-                        let len = bytes.get_u32_le().try_into().expect("Unable to convert");
+                        let len = bytes.get_u32_le();
+                        let len = len.try_into().expect(&format!("Unable to convert: {}", len));
                         bytes.split_to(len)
                     })
                     .collect();
