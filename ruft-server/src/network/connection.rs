@@ -66,7 +66,7 @@ impl Egress {
 }
 
 #[derive(Display)]
-#[display(fmt = "{}", endpoint)]
+#[display(fmt = "{} this", endpoint)]
 pub(super) struct Ingress {
     endpoint: Endpoint,
     messages: UnboundedReceiver<Bytes>,

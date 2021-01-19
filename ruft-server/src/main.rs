@@ -93,7 +93,7 @@ fn init_logging() {
 type Id = u8;
 
 #[derive(Eq, PartialEq, Display, Clone)]
-#[display(fmt = "Endpoint {{id: {}, address: {}}}", id, address)]
+#[display(fmt = "Endpoint {{ id: {}, address: {} }}", id, address)]
 struct Endpoint {
     id: Id,
     address: SocketAddr,

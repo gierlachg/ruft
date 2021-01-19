@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -44,7 +44,7 @@ impl PhysicalCluster {
         let egresses = join_all(futures)
             .await
             .into_iter()
-            .map(|member| (member.id(), member))
+            .map(|egress| (egress.id(), egress))
             .collect::<HashMap<Id, Egress>>();
 
         let ingress = Ingress::bind(local_endpoint).await?;
@@ -88,20 +88,20 @@ impl Cluster for PhysicalCluster {
 
 impl Display for PhysicalCluster {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        let mut endpoints = BTreeSet::new();
+        endpoints.insert(self.ingress.to_string());
+        endpoints.extend(self.egresses.values().into_iter().map(Egress::to_string));
+
         write!(
             formatter,
             "\n\
         \n\
-        Members {{size:{}}} [\n\
+        Members {{ size:{} }} [\n\
         \t{}\n\
         ]\n\
          ",
-            self.egresses.len(), // TODO:
-            self.egresses
-                .values()
-                .map(|egress| egress.to_string())
-                .collect::<Vec<String>>()
-                .join("\n\t")
+            endpoints.len(),
+            endpoints.into_iter().collect::<Vec<_>>().join("\n\t")
         )
     }
 }
