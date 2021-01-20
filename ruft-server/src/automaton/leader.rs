@@ -163,12 +163,12 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                                     vec![entry.clone()],
                                 );
                                 self.cluster.send(&member_id, message).await;
+
+                                tracker.update_next_position(position.clone());
+                                tracker.mark_sent_recently();
                             }
                             None => panic!("Missing entry at {:?}", &position),
                         };
-
-                        tracker.update_next_position(position);
-                        tracker.mark_sent_recently();
                     }
                     None => panic!("Missing tracker for id: {}", member_id),
                 }
@@ -186,12 +186,12 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                                 vec![entry.clone()],
                             );
                             self.cluster.send(&member_id, message).await;
+
+                            tracker.update_next_position(position);
+                            tracker.mark_sent_recently();
                         }
                         None => panic!("Missing entry at {:?}", &position),
                     };
-
-                    tracker.update_next_position(position);
-                    tracker.mark_sent_recently();
                 }
                 None => panic!("Missing tracker for id: {}", member_id),
             }
@@ -207,10 +207,12 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                 leader_id: None,
                 voted_for: None,
             })
-        } else {
+        } else if term < self.term {
             self.cluster
                 .send(&candidate_id, Message::vote_response(false, self.term))
                 .await;
+            None
+        } else {
             None
         }
     }
@@ -261,6 +263,7 @@ mod tests {
 
     use async_trait::async_trait;
     use bytes::Bytes;
+    use lazy_static::lazy_static;
     use mockall::{mock, predicate};
     use predicate::eq;
     use tokio::time::Duration;
@@ -271,26 +274,38 @@ mod tests {
 
     use super::*;
 
-    const LOCAL_ID: u8 = 1;
+    const ID: u8 = 1;
     const PEER_ID: u8 = 2;
 
-    const LOCAL_TERM: u64 = 10;
+    const TERM: u64 = 10;
+
+    lazy_static! {
+        static ref PRECEDING_POSITION: Position = Position::of(TERM - 1, 0);
+        static ref POSITION: Position = Position::of(TERM, 0);
+        static ref ENTRY: Bytes = Bytes::from(vec![1]);
+    }
 
     // TODO: on_tick tests
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_request_term_greater_then_switch_to_follower() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
+
         let mut leader = leader(&mut storage, &mut cluster);
 
-        let state = leader.on_append_request(PEER_ID, LOCAL_TERM + 1).await;
+        // when
+        let state = leader.on_append_request(PEER_ID, TERM + 1).await;
+
+        // then
         assert_eq!(
             state,
             Some(State::FOLLOWER {
-                id: LOCAL_ID,
-                term: LOCAL_TERM + 1,
+                id: ID,
+                term: TERM + 1,
                 leader_id: Some(PEER_ID),
                 voted_for: None,
             })
@@ -300,50 +315,62 @@ mod tests {
     #[should_panic]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_request_term_equal_then_panics() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
+
         let mut leader = leader(&mut storage, &mut cluster);
 
-        leader.on_append_request(PEER_ID, LOCAL_TERM).await;
+        // when
+        // then
+        leader.on_append_request(PEER_ID, TERM).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_request_term_less_then_respond() {
-        let current_position: Position = Position::of(LOCAL_TERM, 0);
-
+        // given
         let mut storage = MockStorage::new();
-        storage.expect_head().return_const(current_position);
+        storage.expect_head().return_const(POSITION.clone());
+
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
-            .with(
-                eq(PEER_ID),
-                eq(Message::append_response(LOCAL_ID, true, current_position)),
-            )
+            .with(eq(PEER_ID), eq(Message::append_response(ID, true, POSITION.clone())))
             .return_const(());
+
         let mut leader = leader(&mut storage, &mut cluster);
 
-        let state = leader.on_append_request(PEER_ID, LOCAL_TERM - 1).await;
+        // when
+        let state = leader.on_append_request(PEER_ID, TERM - 1).await;
+
+        // then
         assert_eq!(state, None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_response_term_greater_then_switch_to_follower() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
+
         let mut leader = leader(&mut storage, &mut cluster);
 
+        // when
         let state = leader
-            .on_append_response(PEER_ID, true, Position::of(LOCAL_TERM + 1, 0))
+            .on_append_response(PEER_ID, true, Position::of(TERM + 1, 0))
             .await;
+
+        // then
         assert_eq!(
             state,
             Some(State::FOLLOWER {
-                id: LOCAL_ID,
-                term: LOCAL_TERM + 1,
+                id: ID,
+                term: TERM + 1,
                 leader_id: None,
                 voted_for: None,
             })
@@ -352,33 +379,115 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_response_successful_and_position_latest_then_update() {
-        let current_position: Position = Position::of(LOCAL_TERM, 0);
-
+        // given
         let mut storage = MockStorage::new();
-        storage.expect_head().return_const(current_position);
+        storage.expect_head().return_const(POSITION.clone());
+
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
+
         let mut leader = leader(&mut storage, &mut cluster);
 
-        let state = leader.on_append_response(PEER_ID, true, current_position).await;
+        // when
+        let state = leader.on_append_response(PEER_ID, true, POSITION.clone()).await;
+
+        // then
         assert_eq!(state, None);
+        assert_eq!(leader.trackers.get(&PEER_ID).unwrap().next_position(), &None);
     }
 
-    // TODO: remaining on_append_response tests
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn when_append_response_successful_and_position_not_latest_then_replicate_and_update() {
+        // given
+        let preceding_position = Position::of(TERM - 1, 0);
+
+        let mut storage = MockStorage::new();
+        storage.expect_head().return_const(POSITION.clone());
+        storage.expect_next().returning(|_| Some((&POSITION, &ENTRY)));
+
+        let mut cluster = MockCluster::new();
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
+        cluster
+            .expect_send()
+            .with(
+                eq(PEER_ID),
+                eq(Message::append_request(
+                    ID,
+                    preceding_position,
+                    POSITION.term(),
+                    vec![ENTRY.clone()],
+                )),
+            )
+            .return_const(());
+
+        let mut leader = leader(&mut storage, &mut cluster);
+
+        // when
+        let state = leader.on_append_response(PEER_ID, true, preceding_position).await;
+
+        // then
+        assert_eq!(state, None);
+        assert_eq!(
+            leader.trackers.get(&PEER_ID).unwrap().next_position(),
+            &Some(POSITION.clone())
+        );
+        assert!(leader.trackers.get(&PEER_ID).unwrap().was_sent_recently());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn when_append_response_failed_then_replicate_and_update() {
+        // given
+        let mut storage = MockStorage::new();
+        storage.expect_at().returning(|_| Some((&PRECEDING_POSITION, &ENTRY)));
+
+        let mut cluster = MockCluster::new();
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
+        cluster
+            .expect_send()
+            .with(
+                eq(PEER_ID),
+                eq(Message::append_request(
+                    ID,
+                    PRECEDING_POSITION.clone(),
+                    POSITION.term(),
+                    vec![ENTRY.clone()],
+                )),
+            )
+            .return_const(());
+
+        let mut leader = leader(&mut storage, &mut cluster);
+
+        // when
+        let state = leader.on_append_response(PEER_ID, false, POSITION.clone()).await;
+
+        // then
+        assert_eq!(state, None);
+        assert_eq!(
+            leader.trackers.get(&PEER_ID).unwrap().next_position(),
+            &Some(POSITION.clone())
+        );
+        assert!(leader.trackers.get(&PEER_ID).unwrap().was_sent_recently());
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_vote_request_term_greater_then_switch_to_follower() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
+
         let mut leader = leader(&mut storage, &mut cluster);
 
-        let state = leader.on_vote_request(PEER_ID, LOCAL_TERM + 1).await;
+        // when
+        let state = leader.on_vote_request(PEER_ID, TERM + 1).await;
+
+        // then
         assert_eq!(
             state,
             Some(State::FOLLOWER {
-                id: LOCAL_ID,
-                term: LOCAL_TERM + 1,
+                id: ID,
+                term: TERM + 1,
                 leader_id: None,
                 voted_for: None,
             })
@@ -386,22 +495,45 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn when_vote_request_term_less_or_equal_then_respond() {
+    async fn when_vote_request_term_equal_then_ignore() {
+        // given
         let mut storage = MockStorage::new();
+
+        let mut cluster = MockCluster::new();
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
+
+        let mut leader = leader(&mut storage, &mut cluster);
+
+        // when
+        let state = leader.on_vote_request(PEER_ID, TERM).await;
+
+        // then
+        assert_eq!(state, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn when_vote_request_term_less_then_respond() {
+        // given
+        let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::vote_response(false, LOCAL_TERM)))
+            .with(eq(PEER_ID), eq(Message::vote_response(false, TERM)))
             .return_const(());
+
         let mut leader = leader(&mut storage, &mut cluster);
 
-        let state = leader.on_vote_request(PEER_ID, LOCAL_TERM).await;
+        // when
+        let state = leader.on_vote_request(PEER_ID, TERM - 1).await;
+
+        // then
         assert_eq!(state, None);
     }
 
     fn leader<'a>(storage: &'a mut MockStorage, cluster: &'a mut MockCluster) -> Leader<'a, MockStorage, MockCluster> {
-        Leader::init(LOCAL_ID, LOCAL_TERM, storage, cluster, Duration::from_secs(1))
+        Leader::init(ID, TERM, storage, cluster, Duration::from_secs(1))
     }
 
     mock! {

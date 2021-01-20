@@ -130,6 +130,7 @@ mod tests {
     use async_trait::async_trait;
     use bytes::Bytes;
     use mockall::mock;
+    use mockall::predicate::eq;
     use tokio::time::Duration;
 
     use crate::protocol::Message;
@@ -137,25 +138,30 @@ mod tests {
     use crate::Id;
 
     use super::*;
-    use mockall::predicate::eq;
 
-    const LOCAL_ID: u8 = 1;
+    const ID: u8 = 1;
     const PEER_ID: u8 = 2;
 
-    const LOCAL_TERM: u64 = 10;
+    const TERM: u64 = 10;
 
     #[test]
     fn when_append_request_term_greater_then_switch_to_follower() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_append_request(PEER_ID, LOCAL_TERM + 1);
+        // when
+        let state = candidate.on_append_request(PEER_ID, TERM + 1);
+
+        // then
         assert_eq!(
             state,
             Some(State::FOLLOWER {
-                id: LOCAL_ID,
-                term: LOCAL_TERM + 1,
+                id: ID,
+                term: TERM + 1,
                 leader_id: Some(PEER_ID),
                 voted_for: None,
             })
@@ -164,16 +170,22 @@ mod tests {
 
     #[test]
     fn when_append_request_term_equal_then_switch_to_follower() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_append_request(PEER_ID, LOCAL_TERM);
+        // when
+        let state = candidate.on_append_request(PEER_ID, TERM);
+
+        // then
         assert_eq!(
             state,
             Some(State::FOLLOWER {
-                id: LOCAL_ID,
-                term: LOCAL_TERM,
+                id: ID,
+                term: TERM,
                 leader_id: Some(PEER_ID),
                 voted_for: None,
             })
@@ -182,30 +194,42 @@ mod tests {
 
     #[test]
     fn when_append_request_term_less_then_ignore() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_append_request(PEER_ID, LOCAL_TERM - 1);
+        // when
+        let state = candidate.on_append_request(PEER_ID, TERM - 1);
+
+        // then
         assert_eq!(state, None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_vote_request_term_greater_then_respond_and_switch_to_follower() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::vote_response(true, LOCAL_TERM + 1)))
+            .with(eq(PEER_ID), eq(Message::vote_response(true, TERM + 1)))
             .return_const(());
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_vote_request(PEER_ID, LOCAL_TERM + 1).await;
+        // when
+        let state = candidate.on_vote_request(PEER_ID, TERM + 1).await;
+
+        // then
         assert_eq!(
             state,
             Some(State::FOLLOWER {
-                id: LOCAL_ID,
-                term: LOCAL_TERM + 1,
+                id: ID,
+                term: TERM + 1,
                 leader_id: None,
                 voted_for: Some(PEER_ID),
             })
@@ -214,36 +238,54 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_vote_request_term_equal_then_ignore() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_vote_request(PEER_ID, LOCAL_TERM).await;
+        // when
+        let state = candidate.on_vote_request(PEER_ID, TERM).await;
+
+        // then
         assert_eq!(state, None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_vote_request_term_less_then_ignore() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_vote_request(PEER_ID, LOCAL_TERM - 1).await;
+        // when
+        let state = candidate.on_vote_request(PEER_ID, TERM - 1).await;
+
+        // then
         assert_eq!(state, None);
     }
 
     #[test]
     fn when_vote_response_term_greater_then_switch_to_follower() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_vote_response(false, LOCAL_TERM + 1);
+        // when
+        let state = candidate.on_vote_response(false, TERM + 1);
+
+        // then
         assert_eq!(
             state,
             Some(State::FOLLOWER {
-                id: LOCAL_ID,
-                term: LOCAL_TERM + 1,
+                id: ID,
+                term: TERM + 1,
                 leader_id: None,
                 voted_for: None,
             })
@@ -252,50 +294,68 @@ mod tests {
 
     #[test]
     fn when_vote_response_term_equal_but_vote_not_granted_then_ignore() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_vote_response(false, LOCAL_TERM);
+        // when
+        let state = candidate.on_vote_response(false, TERM);
+
+        // then
         assert_eq!(state, None);
     }
 
     #[test]
     fn when_vote_response_term_equal_and_vote_granted_but_quorum_not_reached_then_continue() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
         cluster.expect_size().return_const(3usize);
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_vote_response(true, LOCAL_TERM);
+        // when
+        let state = candidate.on_vote_response(true, TERM);
+
+        // then
         assert_eq!(state, None);
     }
 
     #[test]
     fn when_vote_response_term_equal_vote_granted_and_quorum_reached_then_switch_to_leader() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
         cluster.expect_size().times(2).return_const(3usize);
-        let mut candidate = candidate(&mut storage, &mut cluster);
 
-        candidate.on_vote_response(true, LOCAL_TERM);
-        let state = candidate.on_vote_response(true, LOCAL_TERM);
-        assert_eq!(
-            state,
-            Some(State::LEADER {
-                id: LOCAL_ID,
-                term: LOCAL_TERM,
-            })
-        );
+        let mut candidate = candidate(&mut storage, &mut cluster);
+        candidate.on_vote_response(true, TERM);
+
+        // when
+        let state = candidate.on_vote_response(true, TERM);
+
+        // then
+        assert_eq!(state, Some(State::LEADER { id: ID, term: TERM }));
     }
 
     #[test]
     fn when_vote_response_term_less_then_ignore() {
+        // given
         let mut storage = MockStorage::new();
+
         let mut cluster = MockCluster::new();
+
         let mut candidate = candidate(&mut storage, &mut cluster);
 
-        let state = candidate.on_vote_response(true, LOCAL_TERM - 1);
+        // when
+        let state = candidate.on_vote_response(true, TERM - 1);
+
+        // then
         assert_eq!(state, None);
     }
 
@@ -303,7 +363,7 @@ mod tests {
         storage: &'a mut MockStorage,
         cluster: &'a mut MockCluster,
     ) -> Candidate<'a, MockStorage, MockCluster> {
-        Candidate::init(LOCAL_ID, LOCAL_TERM, storage, cluster, Duration::from_secs(1))
+        Candidate::init(ID, TERM, storage, cluster, Duration::from_secs(1))
     }
 
     mock! {
