@@ -101,19 +101,9 @@ impl Into<Bytes> for Message {
                 bytes.put_u64_le(preceding_position.term());
                 bytes.put_u64_le(preceding_position.index());
                 bytes.put_u64_le(term);
-                bytes.put_u32_le(
-                    entries
-                        .len()
-                        .try_into()
-                        .expect(&format!("Unable to convert: {}", entries.len())),
-                );
+                bytes.put_u32_le(entries.len().try_into().expect("Unable to convert"));
                 entries.iter().for_each(|entry| {
-                    bytes.put_u32_le(
-                        entry
-                            .len()
-                            .try_into()
-                            .expect(&format!("Unable to convert: {}", entry.len())),
-                    );
+                    bytes.put_u32_le(entry.len().try_into().expect("Unable to convert"));
                     bytes.put(entry.as_ref());
                 });
             }
@@ -160,8 +150,7 @@ impl From<Bytes> for Message {
                 let entries = (0..bytes.get_u32_le())
                     .into_iter()
                     .map(|_| {
-                        let len = bytes.get_u32_le();
-                        let len = len.try_into().expect(&format!("Unable to convert: {}", len));
+                        let len = bytes.get_u32_le().try_into().expect("Unable to convert");
                         bytes.split_to(len)
                     })
                     .collect();

@@ -88,15 +88,17 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
         let futures = self
             .trackers
             .iter()
-            .filter(|(_, tracker)| !tracker.sent)
-            .map(|(member_id, tracker)| self.replicate(member_id, tracker.next_position))
+            .filter(|(_, tracker)| !tracker.was_sent_recently())
+            .map(|(member_id, tracker)| self.replicate_or_heartbeat(member_id, tracker.next_position()))
             .collect::<Vec<_>>();
         join_all(futures).await;
 
-        self.trackers.iter_mut().for_each(|(_, tracker)| tracker.sent = false);
+        self.trackers
+            .iter_mut()
+            .for_each(|(_, tracker)| tracker.clear_sent_recently());
     }
 
-    async fn replicate(&self, member_id: &Id, position: Option<Position>) {
+    async fn replicate_or_heartbeat(&self, member_id: &Id, position: &Option<Position>) {
         match position {
             Some(position) => match self.storage.at(&position).await {
                 Some((preceding_position, entry)) => {
@@ -145,10 +147,9 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
         } else if success {
             if position == *self.storage.head() {
                 match self.trackers.get_mut(&member_id) {
-                    Some(tracker) => tracker.next_position = None,
+                    Some(tracker) => tracker.clear_next_position(),
                     None => panic!("Missing member of id: {}", member_id),
                 }
-                None
             } else {
                 match self.trackers.get_mut(&member_id) {
                     Some(tracker) => {
@@ -165,13 +166,14 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                             }
                             None => panic!("Missing entry at {:?}", &position),
                         };
-                        tracker.next_position = Some(position);
-                        tracker.sent = true;
+
+                        tracker.update_next_position(position);
+                        tracker.mark_sent_recently();
                     }
-                    None => panic!("Missing tracker of id: {}", member_id),
+                    None => panic!("Missing tracker for id: {}", member_id),
                 }
-                None
             }
+            None
         } else {
             match self.trackers.get_mut(&member_id) {
                 Some(tracker) => {
@@ -187,10 +189,11 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                         }
                         None => panic!("Missing entry at {:?}", &position),
                     };
-                    tracker.next_position = Some(position);
-                    tracker.sent = true;
+
+                    tracker.update_next_position(position);
+                    tracker.mark_sent_recently();
                 }
-                None => panic!("Missing tracker of id: {}", member_id),
+                None => panic!("Missing tracker for id: {}", member_id),
             }
             None
         }
@@ -215,15 +218,39 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
 
 struct Tracker {
     next_position: Option<Position>,
-    sent: bool, // TODO: naming
+    sent_recently: bool,
 }
 
 impl Tracker {
     fn new(next_position: Position) -> Self {
         Tracker {
             next_position: Some(next_position),
-            sent: false,
+            sent_recently: false,
         }
+    }
+
+    fn next_position(&self) -> &Option<Position> {
+        &self.next_position
+    }
+
+    fn clear_next_position(&mut self) {
+        self.next_position = None;
+    }
+
+    fn update_next_position(&mut self, position: Position) {
+        self.next_position = Some(position);
+    }
+
+    fn was_sent_recently(&self) -> bool {
+        self.sent_recently
+    }
+
+    fn clear_sent_recently(&mut self) {
+        self.sent_recently = false;
+    }
+
+    fn mark_sent_recently(&mut self) {
+        self.sent_recently = true;
     }
 }
 
