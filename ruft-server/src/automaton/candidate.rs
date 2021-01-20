@@ -39,7 +39,6 @@ impl<'a, S: Storage, C: Cluster> Candidate<'a, S, C> {
                 message = self.cluster.receive() => {
                     match message {
                         Some(message) => {
-                            log::info!("term: {}, message: {:?}", self.term, message);
                             if let Some (state) = match message {
                                 AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
                                     self.on_append_request(leader_id, term)
@@ -62,7 +61,6 @@ impl<'a, S: Storage, C: Cluster> Candidate<'a, S, C> {
     }
 
     async fn on_election_timeout(&mut self) {
-        log::info!("election timeout");
         self.term += 1;
         self.granted_votes = 1;
         self.cluster

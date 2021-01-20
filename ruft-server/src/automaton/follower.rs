@@ -1,5 +1,4 @@
 use bytes::Bytes;
-use log::info;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
@@ -80,13 +79,11 @@ impl<'a, S: Storage, C: Cluster> Follower<'a, S, C> {
 
         match self.storage.insert(&preceding_position, term, entries).await {
             Ok(position) => {
-                info!("Accepted: {:?}", position);
                 self.cluster
                     .send(&leader_id, Message::append_response(self.id, true, position))
                     .await
             }
             Err(position) => {
-                info!("Missing: {:?}", position);
                 self.cluster
                     .send(&leader_id, Message::append_response(self.id, false, position))
                     .await
