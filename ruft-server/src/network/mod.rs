@@ -20,9 +20,9 @@ pub(crate) trait Cluster {
 
     fn size(&self) -> usize;
 
-    async fn send(&mut self, member_id: &Id, message: Message);
+    async fn send(&self, member_id: &Id, message: Message);
 
-    async fn broadcast(&mut self, message: Message);
+    async fn broadcast(&self, message: Message);
 
     async fn receive(&mut self) -> Option<Message>;
 }
@@ -63,19 +63,19 @@ impl Cluster for PhysicalCluster {
         self.egresses.len()
     }
 
-    async fn send(&mut self, member_id: &Id, message: Message) {
-        match self.egresses.get_mut(&member_id) {
+    async fn send(&self, member_id: &Id, message: Message) {
+        match self.egresses.get(&member_id) {
             Some(egress) => egress.send(message.into()).await,
             None => panic!("Missing member of id: {}", member_id),
         }
     }
 
-    async fn broadcast(&mut self, message: Message) {
+    async fn broadcast(&self, message: Message) {
         let message: Bytes = message.into();
 
         let futures = self
             .egresses
-            .values_mut()
+            .values()
             .map(|egress| egress.send(message.clone()))
             .collect::<Vec<_>>();
         join_all(futures).await;

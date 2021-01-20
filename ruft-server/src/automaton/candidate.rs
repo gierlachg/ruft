@@ -9,9 +9,10 @@ use crate::Id;
 pub(super) struct Candidate<'a, S: Storage, C: Cluster> {
     id: Id,
     term: u64,
-    granted_votes: usize,
     storage: &'a mut S,
     cluster: &'a mut C,
+
+    granted_votes: usize,
 
     election_timeout: Duration,
 }
@@ -21,9 +22,9 @@ impl<'a, S: Storage, C: Cluster> Candidate<'a, S, C> {
         Candidate {
             id,
             term,
-            granted_votes: 0,
             storage,
             cluster,
+            granted_votes: 0,
             election_timeout,
         }
     }
@@ -33,10 +34,7 @@ impl<'a, S: Storage, C: Cluster> Candidate<'a, S, C> {
         loop {
             tokio::select! {
                 _ = election_timer.tick() => {
-                    log::info!("election timeout");
-                    self.term += 1;
-                    self.granted_votes = 1;
-                    self.cluster.broadcast(Message::vote_request(self.id, self.term, *self.storage.head())).await;
+                    self.on_election_timeout().await;
                 }
                 message = self.cluster.receive() => {
                     match message {
@@ -61,6 +59,15 @@ impl<'a, S: Storage, C: Cluster> Candidate<'a, S, C> {
             }
         }
         None
+    }
+
+    async fn on_election_timeout(&mut self) {
+        log::info!("election timeout");
+        self.term += 1;
+        self.granted_votes = 1;
+        self.cluster
+            .broadcast(Message::vote_request(self.id, self.term, *self.storage.head()))
+            .await;
     }
 
     fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
@@ -325,8 +332,8 @@ mod tests {
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
-            async fn send(&mut self, member_id: &Id, message: Message);
-            async fn broadcast(&mut self, message: Message);
+            async fn send(&self, member_id: &Id, message: Message);
+            async fn broadcast(&self, message: Message);
             async fn receive(&mut self) -> Option<Message>;
         }
     }

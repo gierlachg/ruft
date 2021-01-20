@@ -11,10 +11,11 @@ use crate::Id;
 pub(super) struct Follower<'a, S: Storage, C: Cluster> {
     id: Id,
     term: u64,
-    leader_id: Option<Id>,
-    voted_for: Option<Id>,
     storage: &'a mut S,
     cluster: &'a mut C,
+
+    leader_id: Option<Id>,
+    voted_for: Option<Id>,
 
     election_timeout: Duration,
 }
@@ -23,19 +24,19 @@ impl<'a, S: Storage, C: Cluster> Follower<'a, S, C> {
     pub(super) fn init(
         id: Id,
         term: u64,
-        leader_id: Option<Id>,
-        voted_for: Option<Id>,
         storage: &'a mut S,
         cluster: &'a mut C,
+        leader_id: Option<Id>,
+        voted_for: Option<Id>,
         election_timeout: Duration,
     ) -> Self {
         Follower {
             id,
             term,
-            leader_id,
-            voted_for,
             storage,
             cluster,
+            leader_id,
+            voted_for,
             election_timeout,
         }
     }
@@ -262,10 +263,10 @@ mod tests {
         Follower::init(
             LOCAL_ID,
             LOCAL_TERM,
-            leader_id,
-            None,
             storage,
             cluster,
+            leader_id,
+            None,
             Duration::from_secs(1),
         )
     }
@@ -294,8 +295,8 @@ mod tests {
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
-            async fn send(&mut self, member_id: &Id, message: Message);
-            async fn broadcast(&mut self, message: Message);
+            async fn send(&self, member_id: &Id, message: Message);
+            async fn broadcast(&self, message: Message);
             async fn receive(&mut self) -> Option<Message>;
         }
     }

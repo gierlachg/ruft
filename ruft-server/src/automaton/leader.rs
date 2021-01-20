@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use futures::future::join_all;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
@@ -84,28 +85,31 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
     }
 
     async fn on_tick(&mut self) {
-        for (id, tracker) in self.trackers.iter_mut() {
-            if !tracker.sent {
-                match tracker.next_position {
-                    Some(position) => match self.storage.at(&position).await {
-                        Some((preceding_position, entry)) => {
-                            let message = Message::append_request(
-                                self.id,
-                                *preceding_position,
-                                position.term(),
-                                vec![entry.clone()],
-                            );
-                            self.cluster.send(id, message).await; // TODO: join
-                        }
-                        None => panic!("Missing entry at {:?}", &position),
-                    },
-                    None => {
-                        let message = Message::append_request(self.id, *self.storage.head(), self.term, vec![]);
-                        self.cluster.send(id, message).await; // TODO: join
-                    }
+        let futures = self
+            .trackers
+            .iter()
+            .filter(|(_, tracker)| !tracker.sent)
+            .map(|(member_id, tracker)| self.replicate(member_id, tracker.next_position))
+            .collect::<Vec<_>>();
+        join_all(futures).await;
+
+        self.trackers.iter_mut().for_each(|(_, tracker)| tracker.sent = false);
+    }
+
+    async fn replicate(&self, member_id: &Id, position: Option<Position>) {
+        match position {
+            Some(position) => match self.storage.at(&position).await {
+                Some((preceding_position, entry)) => {
+                    let message =
+                        Message::append_request(self.id, *preceding_position, position.term(), vec![entry.clone()]);
+                    self.cluster.send(member_id, message).await;
                 }
+                None => panic!("Missing entry at {:?}", &position),
+            },
+            None => {
+                let message = Message::append_request(self.id, *self.storage.head(), self.term, vec![]);
+                self.cluster.send(member_id, message).await;
             }
-            tracker.sent = false;
         }
     }
 
@@ -397,8 +401,8 @@ mod tests {
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
-            async fn send(&mut self, member_id: &Id, message: Message);
-            async fn broadcast(&mut self, message: Message);
+            async fn send(&self, member_id: &Id, message: Message);
+            async fn broadcast(&self, message: Message);
             async fn receive(&mut self) -> Option<Message>;
         }
     }

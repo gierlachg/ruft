@@ -57,10 +57,10 @@ impl Automaton {
                     Follower::init(
                         id,
                         term,
-                        leader_id,
-                        voted_for,
                         &mut storage,
                         &mut cluster,
+                        leader_id,
+                        voted_for,
                         election_timeout,
                     )
                     .run()

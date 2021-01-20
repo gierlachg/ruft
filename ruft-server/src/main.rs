@@ -1,4 +1,6 @@
 #![feature(map_first_last)]
+#![feature(type_alias_impl_trait)]
+#![feature(async_closure)]
 
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
