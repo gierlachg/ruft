@@ -285,7 +285,73 @@ mod tests {
         static ref ENTRY: Bytes = Bytes::from(vec![1]);
     }
 
-    // TODO: on_tick tests
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn when_time_comes_and_was_not_sent_recently_heartbeat_is_sent() {
+        // given
+        let mut storage = MockStorage::new();
+        storage.expect_head().return_const(POSITION.clone());
+
+        let mut cluster = MockCluster::new();
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
+        cluster
+            .expect_send()
+            .with(
+                eq(PEER_ID),
+                eq(Message::append_request(ID, POSITION.clone(), TERM, vec![])),
+            )
+            .return_const(());
+
+        let mut leader = leader(&mut storage, &mut cluster);
+        leader.trackers.get_mut(&PEER_ID).unwrap().clear_next_position();
+
+        // when
+        // then
+        leader.on_tick().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn when_time_comes_but_was_sent_recently_skip() {
+        // given
+        let mut storage = MockStorage::new();
+
+        let mut cluster = MockCluster::new();
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
+
+        let mut leader = leader(&mut storage, &mut cluster);
+        leader.trackers.get_mut(&PEER_ID).unwrap().mark_sent_recently();
+
+        // when
+        // then
+        leader.on_tick().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn when_time_comes_last_non_replicated_entry_is_sent() {
+        // given
+        let mut storage = MockStorage::new();
+        storage.expect_at().returning(|_| Some((&PRECEDING_POSITION, &ENTRY)));
+
+        let mut cluster = MockCluster::new();
+        cluster.expect_member_ids().return_const(vec![PEER_ID]);
+        cluster
+            .expect_send()
+            .with(
+                eq(PEER_ID),
+                eq(Message::append_request(
+                    ID,
+                    PRECEDING_POSITION.clone(),
+                    POSITION.term(),
+                    vec![ENTRY.clone()],
+                )),
+            )
+            .return_const(());
+
+        let mut leader = leader(&mut storage, &mut cluster);
+
+        // when
+        // then
+        leader.on_tick().await;
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_request_term_greater_then_switch_to_follower() {
