@@ -3,8 +3,8 @@ use log::info;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::network::Cluster;
-use crate::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::Cluster;
 use crate::storage::{Position, Storage};
 use crate::Id;
 
@@ -97,6 +97,7 @@ impl<'a, S: Storage, C: Cluster> Follower<'a, S, C> {
 
     async fn on_vote_request(&mut self, candidate_id: Id, term: u64, position: Position) {
         if term > self.term && self.voted_for.is_none() && position >= *self.storage.head() {
+            // TODO: fix voted_for...
             // TODO: should it be actually updated ?
             self.term = term;
             self.leader_id = None;
@@ -124,7 +125,7 @@ mod tests {
     use predicate::eq;
     use tokio::time::Duration;
 
-    use crate::protocol::Message;
+    use crate::cluster::protocol::Message;
     use crate::storage::Position;
     use crate::Id;
 

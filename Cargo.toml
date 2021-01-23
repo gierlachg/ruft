@@ -1,5 +1,7 @@
 [workspace]
 
 members = [
-  "ruft-server",
+    "ruft-server",
+    "ruft-client",
+    "examples",
 ]

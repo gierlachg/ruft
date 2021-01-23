@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use derive_more::Display;
 
-use crate::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::storage::Position;
 use crate::Id;
 
@@ -199,7 +199,7 @@ mod tests {
                 leader_id: 1,
                 preceding_position: Position::of(12, 69),
                 term: 128,
-                entries: vec![Bytes::from_static(&[1]), Bytes::from_static(&[2])]
+                entries: vec![Bytes::from_static(&[1]), Bytes::from_static(&[2])],
             }
         );
     }

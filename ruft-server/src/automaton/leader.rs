@@ -1,33 +1,37 @@
 use std::collections::HashMap;
 
+use bytes::Bytes;
 use futures::future::join_all;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::network::Cluster;
-use crate::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::Cluster;
+use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
 use crate::Id;
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
-pub(super) struct Leader<'a, S: Storage, C: Cluster> {
+pub(super) struct Leader<'a, S: Storage, C: Cluster, R: Relay> {
     id: Id,
     term: u64,
     storage: &'a mut S,
     cluster: &'a mut C,
+    relay: &'a mut R,
 
     trackers: HashMap<Id, Tracker>,
 
     heartbeat_interval: Duration,
 }
 
-impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
+impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     pub(super) fn init(
         id: Id,
         term: u64,
         storage: &'a mut S,
         cluster: &'a mut C,
+        relay: &'a mut R,
         heartbeat_interval: Duration,
     ) -> Self {
         let trackers = cluster
@@ -41,6 +45,7 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
             term,
             storage,
             cluster,
+            relay,
             trackers,
             heartbeat_interval,
         }
@@ -75,6 +80,14 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
                             } {
                                 return Some(state)
                             }
+                        }
+                        None => break
+                    }
+                }
+                event = self.relay.receive() => {
+                    match event {
+                        Some(event) => {
+                            self.on_event(event).await
                         }
                         None => break
                     }
@@ -216,6 +229,10 @@ impl<'a, S: Storage, C: Cluster> Leader<'a, S, C> {
             None
         }
     }
+
+    async fn on_event(&mut self, event: Bytes) {
+        self.storage.extend(self.term, vec![event]).await;
+    }
 }
 
 struct Tracker {
@@ -268,7 +285,7 @@ mod tests {
     use predicate::eq;
     use tokio::time::Duration;
 
-    use crate::protocol::Message;
+    use crate::cluster::protocol::Message;
     use crate::storage::Position;
     use crate::Id;
 
@@ -301,7 +318,9 @@ mod tests {
             )
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
         leader.trackers.get_mut(&PEER_ID).unwrap().clear_next_position();
 
         // when
@@ -317,7 +336,9 @@ mod tests {
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
         leader.trackers.get_mut(&PEER_ID).unwrap().mark_sent_recently();
 
         // when
@@ -346,7 +367,9 @@ mod tests {
             )
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         // then
@@ -361,7 +384,9 @@ mod tests {
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_request(PEER_ID, TERM + 1).await;
@@ -387,7 +412,9 @@ mod tests {
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         // then
@@ -407,7 +434,9 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::append_response(ID, true, POSITION.clone())))
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_request(PEER_ID, TERM - 1).await;
@@ -424,7 +453,9 @@ mod tests {
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader
@@ -452,7 +483,9 @@ mod tests {
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_response(PEER_ID, true, POSITION.clone()).await;
@@ -486,7 +519,9 @@ mod tests {
             )
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_response(PEER_ID, true, preceding_position).await;
@@ -521,7 +556,9 @@ mod tests {
             )
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_response(PEER_ID, false, POSITION.clone()).await;
@@ -543,7 +580,9 @@ mod tests {
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_vote_request(PEER_ID, TERM + 1).await;
@@ -568,7 +607,9 @@ mod tests {
         let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_vote_request(PEER_ID, TERM).await;
@@ -589,7 +630,9 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::vote_response(false, TERM)))
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster);
+        let mut relay = MockRelay::new();
+
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_vote_request(PEER_ID, TERM - 1).await;
@@ -598,8 +641,12 @@ mod tests {
         assert_eq!(state, None);
     }
 
-    fn leader<'a>(storage: &'a mut MockStorage, cluster: &'a mut MockCluster) -> Leader<'a, MockStorage, MockCluster> {
-        Leader::init(ID, TERM, storage, cluster, Duration::from_secs(1))
+    fn leader<'a>(
+        storage: &'a mut MockStorage,
+        cluster: &'a mut MockCluster,
+        relay: &'a mut MockRelay,
+    ) -> Leader<'a, MockStorage, MockCluster, MockRelay> {
+        Leader::init(ID, TERM, storage, cluster, relay, Duration::from_secs(1))
     }
 
     mock! {
@@ -629,6 +676,14 @@ mod tests {
             async fn send(&self, member_id: &Id, message: Message);
             async fn broadcast(&self, message: Message);
             async fn receive(&mut self) -> Option<Message>;
+        }
+    }
+
+    mock! {
+        Relay {}
+        #[async_trait]
+        trait Relay {
+            async fn receive(&mut self) -> Option<Bytes>;
         }
     }
 }

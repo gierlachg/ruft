@@ -1,8 +1,8 @@
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::network::Cluster;
-use crate::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::Cluster;
 use crate::storage::Storage;
 use crate::Id;
 
@@ -133,7 +133,7 @@ mod tests {
     use mockall::predicate::eq;
     use tokio::time::Duration;
 
-    use crate::protocol::Message;
+    use crate::cluster::protocol::Message;
     use crate::storage::Position;
     use crate::Id;
 

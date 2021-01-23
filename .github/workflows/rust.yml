@@ -1,20 +1,20 @@
 name: Build & Test
 
-on: [push]
+on: [ push ]
 
 jobs:
   check:
-    
+
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@master
       - name: Install latest nightly
         uses: actions-rs/toolchain@v1
         with:
-            profile: minimal
-            toolchain: nightly
-            override: true
+          profile: minimal
+          toolchain: nightly
+          override: true
 
       - name: cargo test
         uses: actions-rs/cargo@v1

@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::net::SocketAddr;
 
 use log::info;
 use rand::Rng;
@@ -8,7 +9,8 @@ use crate::automaton::candidate::Candidate;
 use crate::automaton::follower::Follower;
 use crate::automaton::leader::Leader;
 use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER};
-use crate::network::PhysicalCluster;
+use crate::cluster::PhysicalCluster;
+use crate::relay::PhysicalRelay;
 use crate::storage::volatile::VolatileStorage;
 use crate::{Endpoint, Id};
 
@@ -24,6 +26,7 @@ pub(super) struct Automaton {}
 
 impl Automaton {
     pub(super) async fn run(
+        client_endpoint: SocketAddr,
         local_endpoint: Endpoint,
         remote_endpoints: Vec<Endpoint>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -38,6 +41,8 @@ impl Automaton {
 
         let mut cluster = PhysicalCluster::init(local_endpoint, remote_endpoints).await?;
         info!("{}", &cluster);
+
+        let mut relay = PhysicalRelay::init(client_endpoint).await?;
 
         let mut state = State::FOLLOWER {
             id,
@@ -67,7 +72,7 @@ impl Automaton {
                     .await
                 }
                 LEADER { id, term } => {
-                    Leader::init(id, term, &mut storage, &mut cluster, heartbeat_interval)
+                    Leader::init(id, term, &mut storage, &mut cluster, &mut relay, heartbeat_interval)
                         .run()
                         .await
                 }

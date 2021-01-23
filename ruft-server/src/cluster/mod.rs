@@ -7,11 +7,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::future::join_all;
 
-use crate::network::connection::{Egress, Ingress};
-use crate::protocol::Message;
+use crate::cluster::connection::{Egress, Ingress};
+use crate::cluster::protocol::Message;
 use crate::{Endpoint, Id};
 
 mod connection;
+pub(crate) mod protocol;
 mod tcp;
 
 #[async_trait]

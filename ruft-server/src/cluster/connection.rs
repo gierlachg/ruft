@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, watch, Mutex};
 use tokio::time;
 use tokio::time::Duration;
 
-use crate::network::tcp::{Listener, Reader, Writer};
+use crate::cluster::tcp::{Listener, Reader, Writer};
 use crate::{Endpoint, Id};
 
 // TODO: configurable
@@ -90,7 +90,7 @@ impl Ingress {
                             }
                         }
                     }
-                    _result = signal::ctrl_c() => break
+                    _result = signal::ctrl_c() => break // TODO: dedup with relay signal
                 }
             }
         });
@@ -103,7 +103,7 @@ impl Ingress {
                 tokio::select! {
                     result =  reader.read() => {
                         match result {
-                            Some(Ok(message)) => sender.send(message.freeze()).expect("That is unexpected!"),
+                            Some(Ok(message)) => sender.send(message.freeze()).expect("This is unexpected!"),
                             Some(Err(e)) => {
                                 error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint());
                                 break;

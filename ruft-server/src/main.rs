@@ -16,11 +16,12 @@ use tokio;
 use crate::automaton::Automaton;
 
 mod automaton;
-mod network;
-mod protocol;
+mod cluster;
+mod relay;
 mod storage;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const CLIENT_ENDPOINT: &str = "client endpoint";
 const LOCAL_ENDPOINT: &str = "local endpoint";
 const REMOTE_ENDPOINTS: &str = "remote endpoint";
 const LOGGING_CONFIGURATION_FILE_NAME: &str = "log4rs.yml";
@@ -28,6 +29,10 @@ const LOGGING_CONFIGURATION_FILE_NAME: &str = "log4rs.yml";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let arguments = parse_arguments();
+    let client_endpoint = arguments
+        .value_of(CLIENT_ENDPOINT)
+        .map(|client_endpoint| parse_address(client_endpoint))
+        .unwrap();
     let local_endpoint = arguments
         .value_of(LOCAL_ENDPOINT)
         .map(|local_endpoint| parse_address(local_endpoint))
@@ -43,7 +48,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logging();
 
     info!("Initializing Ruft server (version: {})", VERSION);
-    Automaton::run(local_endpoint, remote_endpoints).await?;
+    Automaton::run(client_endpoint, local_endpoint, remote_endpoints).await?;
     info!("Ruft server shut down.");
     Ok(())
 }
@@ -51,6 +56,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 fn parse_arguments() -> ArgMatches<'static> {
     App::new(env!("CARGO_PKG_DESCRIPTION"))
         .version(VERSION)
+        .arg(
+            Arg::with_name(CLIENT_ENDPOINT)
+                .required(true)
+                .short("ce")
+                .long("client-endpoint")
+                .takes_value(true)
+                .help("Local endpoint clients connect to"),
+        )
         .arg(
             Arg::with_name(LOCAL_ENDPOINT)
                 .required(true)
