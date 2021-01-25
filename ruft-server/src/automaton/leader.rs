@@ -134,7 +134,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 id: self.id,
                 term,
                 leader_id: Some(leader_id),
-                voted_for: None,
             })
         } else if term == self.term {
             panic!("Double leader detected - term: {}, leader id: {}", term, leader_id);
@@ -155,7 +154,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 id: self.id,
                 term: position.term(),
                 leader_id: None,
-                voted_for: None,
             })
         } else if success {
             if position == *self.storage.head() {
@@ -218,7 +216,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 id: self.id,
                 term,
                 leader_id: None,
-                voted_for: None,
             })
         } else if term < self.term {
             self.cluster
@@ -398,7 +395,6 @@ mod tests {
                 id: ID,
                 term: TERM + 1,
                 leader_id: Some(PEER_ID),
-                voted_for: None,
             })
         );
     }
@@ -469,7 +465,6 @@ mod tests {
                 id: ID,
                 term: TERM + 1,
                 leader_id: None,
-                voted_for: None,
             })
         );
     }
@@ -594,7 +589,6 @@ mod tests {
                 id: ID,
                 term: TERM + 1,
                 leader_id: None,
-                voted_for: None,
             })
         );
     }

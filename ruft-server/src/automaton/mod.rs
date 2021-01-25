@@ -48,28 +48,14 @@ impl Automaton {
             id,
             term: 0,
             leader_id: None,
-            voted_for: None,
         };
         info!("Starting as: {:?}", state);
         loop {
             state = match match state {
-                FOLLOWER {
-                    id,
-                    term,
-                    leader_id,
-                    voted_for,
-                } => {
-                    Follower::init(
-                        id,
-                        term,
-                        &mut storage,
-                        &mut cluster,
-                        leader_id,
-                        voted_for,
-                        election_timeout,
-                    )
-                    .run()
-                    .await
+                FOLLOWER { id, term, leader_id } => {
+                    Follower::init(id, term, &mut storage, &mut cluster, leader_id, election_timeout)
+                        .run()
+                        .await
                 }
                 LEADER { id, term } => {
                     Leader::init(id, term, &mut storage, &mut cluster, &mut relay, heartbeat_interval)
@@ -93,18 +79,7 @@ impl Automaton {
 
 #[derive(Eq, PartialEq, Debug)]
 enum State {
-    LEADER {
-        id: Id,
-        term: u64,
-    },
-    FOLLOWER {
-        id: Id,
-        term: u64,
-        leader_id: Option<Id>,
-        voted_for: Option<Id>,
-    },
-    CANDIDATE {
-        id: Id,
-        term: u64,
-    },
+    LEADER { id: Id, term: u64 },
+    FOLLOWER { id: Id, term: u64, leader_id: Option<Id> },
+    CANDIDATE { id: Id, term: u64 },
 }

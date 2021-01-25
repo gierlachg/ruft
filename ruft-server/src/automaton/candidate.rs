@@ -74,7 +74,6 @@ impl<'a, S: Storage, C: Cluster> Candidate<'a, S, C> {
                 id: self.id,
                 term,
                 leader_id: Some(leader_id),
-                voted_for: None,
             })
         } else {
             None
@@ -91,7 +90,6 @@ impl<'a, S: Storage, C: Cluster> Candidate<'a, S, C> {
                 id: self.id,
                 term,
                 leader_id: None,
-                voted_for: Some(candidate_id),
             })
         } else {
             None
@@ -104,7 +102,6 @@ impl<'a, S: Storage, C: Cluster> Candidate<'a, S, C> {
                 id: self.id,
                 term,
                 leader_id: None,
-                voted_for: None,
             })
         } else if term == self.term && vote_granted {
             self.granted_votes += 1;
@@ -163,7 +160,6 @@ mod tests {
                 id: ID,
                 term: TERM + 1,
                 leader_id: Some(PEER_ID),
-                voted_for: None,
             })
         );
     }
@@ -187,7 +183,6 @@ mod tests {
                 id: ID,
                 term: TERM,
                 leader_id: Some(PEER_ID),
-                voted_for: None,
             })
         );
     }
@@ -231,7 +226,6 @@ mod tests {
                 id: ID,
                 term: TERM + 1,
                 leader_id: None,
-                voted_for: Some(PEER_ID),
             })
         );
     }
@@ -287,7 +281,6 @@ mod tests {
                 id: ID,
                 term: TERM + 1,
                 leader_id: None,
-                voted_for: None,
             })
         );
     }
