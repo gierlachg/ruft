@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn when_vote_request_term_greater_log_is_up_to_date_and_did_not_vote_then_update_and_respond() {
+    async fn when_vote_request_term_greater_and_log_is_up_to_date_then_update_and_respond() {
         // given
         let position = Position::of(1, 1);
 
