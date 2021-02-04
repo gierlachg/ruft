@@ -14,7 +14,7 @@ pub(super) struct Follower<'a, S: Storage, C: Cluster> {
     storage: &'a mut S,
     cluster: &'a mut C,
 
-    leader_id: Option<Id>,
+    _leader_id: Option<Id>,
 
     election_timeout: Duration,
 }
@@ -33,7 +33,7 @@ impl<'a, S: Storage, C: Cluster> Follower<'a, S, C> {
             term,
             storage,
             cluster,
-            leader_id,
+            _leader_id: leader_id,
             election_timeout,
         }
     }
@@ -72,7 +72,7 @@ impl<'a, S: Storage, C: Cluster> Follower<'a, S, C> {
             self.term = term;
         }
         if term >= self.term {
-            self.leader_id = Some(leader_id);
+            self._leader_id = Some(leader_id);
         }
 
         match self.storage.insert(&preceding_position, term, entries).await {
@@ -95,7 +95,7 @@ impl<'a, S: Storage, C: Cluster> Follower<'a, S, C> {
         if term > self.term && position >= *self.storage.head() {
             // TODO: should it be actually updated ?
             self.term = term;
-            self.leader_id = None;
+            self._leader_id = None;
 
             self.cluster
                 .send(&candidate_id, Message::vote_response(true, self.term))
@@ -155,7 +155,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower.leader_id, Some(PEER_ID));
+        assert_eq!(follower._leader_id, Some(PEER_ID));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -183,7 +183,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower.leader_id, Some(PEER_ID));
+        assert_eq!(follower._leader_id, Some(PEER_ID));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -207,7 +207,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower.leader_id, None);
+        assert_eq!(follower._leader_id, None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -225,7 +225,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM);
-        assert_eq!(follower.leader_id, None);
+        assert_eq!(follower._leader_id, None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -249,7 +249,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM);
-        assert_eq!(follower.leader_id, None);
+        assert_eq!(follower._leader_id, None);
     }
 
     fn follower<'a>(
