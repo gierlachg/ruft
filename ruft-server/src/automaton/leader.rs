@@ -5,11 +5,12 @@ use futures::future::join_all;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
+use crate::relay::protocol::Message::StoreRequest;
 use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
-use crate::Id;
+use crate::{cluster, Id};
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
@@ -84,10 +85,11 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                         None => break
                     }
                 }
-                event = self.relay.receive() => {
-                    match event {
-                        Some(event) => {
-                            self.on_event(event).await
+                message = self.relay.receive() => {
+                    match message {
+                        Some(message) => match message {
+                            StoreRequest { id, payload } => self.on_payload(payload).await,
+                            _ => unreachable!(),
                         }
                         None => break
                     }
@@ -115,14 +117,19 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         match position {
             Some(position) => match self.storage.at(&position).await {
                 Some((preceding_position, entry)) => {
-                    let message =
-                        Message::append_request(self.id, *preceding_position, position.term(), vec![entry.clone()]);
+                    let message = cluster::protocol::Message::append_request(
+                        self.id,
+                        *preceding_position,
+                        position.term(),
+                        vec![entry.clone()],
+                    );
                     self.cluster.send(member_id, message).await;
                 }
                 None => panic!("Missing entry at {:?}", &position),
             },
             None => {
-                let message = Message::append_request(self.id, *self.storage.head(), self.term, vec![]);
+                let message =
+                    cluster::protocol::Message::append_request(self.id, *self.storage.head(), self.term, vec![]);
                 self.cluster.send(member_id, message).await;
             }
         }
@@ -141,7 +148,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             self.cluster
                 .send(
                     &leader_id,
-                    Message::append_response(self.id, true, self.storage.head().clone()),
+                    cluster::protocol::Message::append_response(self.id, true, self.storage.head().clone()),
                 )
                 .await;
             None
@@ -167,7 +174,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                         let preceding_position = position;
                         match self.storage.next(&preceding_position).await {
                             Some((position, entry)) => {
-                                let message = Message::append_request(
+                                let message = cluster::protocol::Message::append_request(
                                     self.id,
                                     preceding_position,
                                     position.term(),
@@ -190,7 +197,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 Some(tracker) => {
                     match self.storage.at(&position).await {
                         Some((preceding_position, entry)) => {
-                            let message = Message::append_request(
+                            let message = cluster::protocol::Message::append_request(
                                 self.id,
                                 *preceding_position,
                                 position.term(),
@@ -219,7 +226,10 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             })
         } else if term < self.term {
             self.cluster
-                .send(&candidate_id, Message::vote_response(false, self.term))
+                .send(
+                    &candidate_id,
+                    cluster::protocol::Message::vote_response(false, self.term),
+                )
                 .await;
             None
         } else {
@@ -227,8 +237,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
     }
 
-    async fn on_event(&mut self, event: Bytes) {
-        self.storage.extend(self.term, vec![event]).await;
+    async fn on_payload(&mut self, payload: Bytes) {
+        self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
     }
 }
 

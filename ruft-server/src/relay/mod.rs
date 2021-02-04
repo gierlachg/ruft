@@ -2,16 +2,17 @@ use std::error::Error;
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
-use bytes::Bytes;
 
 use crate::relay::connection::Ingress;
+use crate::relay::protocol::Message;
 
 mod connection;
+pub(crate) mod protocol;
 mod tcp;
 
 #[async_trait]
 pub(crate) trait Relay {
-    async fn receive(&mut self) -> Option<Bytes>;
+    async fn receive(&mut self) -> Option<Message>;
 }
 
 pub(crate) struct PhysicalRelay {
@@ -31,7 +32,7 @@ impl PhysicalRelay {
 
 #[async_trait]
 impl Relay for PhysicalRelay {
-    async fn receive(&mut self) -> Option<Bytes> {
-        self.ingress.next().await
+    async fn receive(&mut self) -> Option<Message> {
+        self.ingress.next().await.map(Message::from)
     }
 }

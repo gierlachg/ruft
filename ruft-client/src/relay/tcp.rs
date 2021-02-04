@@ -26,7 +26,7 @@ impl Writer {
         Ok(Writer { writer })
     }
 
-    pub(super) async fn write(&mut self, event: Bytes) -> Result<()> {
-        Ok(self.writer.send(event).await?)
+    pub(super) async fn write(&mut self, message: Bytes) -> Result<()> {
+        Ok(self.writer.send(message).await?)
     }
 }

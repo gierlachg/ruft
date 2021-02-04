@@ -35,7 +35,7 @@ impl RuftClient {
         Ok(RuftClient { relay })
     }
 
-    pub async fn store(&mut self, event: Bytes) {
-        self.relay.store(event).await
+    pub async fn store(&mut self, payload: Bytes) {
+        self.relay.store(payload).await
     }
 }

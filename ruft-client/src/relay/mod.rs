@@ -2,9 +2,11 @@ use std::net::SocketAddr;
 
 use bytes::Bytes;
 
+use crate::relay::protocol::Message;
 use crate::relay::tcp::Writer;
 use crate::Result;
 
+mod protocol;
 mod tcp;
 
 pub(super) struct Relay {
@@ -24,9 +26,10 @@ impl Relay {
         Ok(Relay { leader })
     }
 
-    pub(super) async fn store(&mut self, event: Bytes) {
+    pub(super) async fn store(&mut self, payload: Bytes) {
         if let Some(leader) = self.leader.as_mut() {
-            leader.write(event).await.unwrap();
+            let message = Message::store_request(1, payload);
+            leader.write(message.into()).await.unwrap();
         }
     }
 }
