@@ -10,7 +10,7 @@ use crate::cluster::Cluster;
 use crate::relay::protocol::Message::StoreRequest;
 use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
-use crate::{cluster, Id};
+use crate::{cluster, relay, Id};
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
@@ -292,7 +292,6 @@ mod tests {
     use predicate::eq;
     use tokio::time::Duration;
 
-    use crate::cluster::protocol::Message;
     use crate::storage::Position;
     use crate::Id;
 
@@ -321,7 +320,12 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(Message::append_request(ID, POSITION.clone(), TERM, vec![])),
+                eq(cluster::protocol::Message::append_request(
+                    ID,
+                    POSITION.clone(),
+                    TERM,
+                    vec![],
+                )),
             )
             .return_const(());
 
@@ -365,7 +369,7 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(Message::append_request(
+                eq(cluster::protocol::Message::append_request(
                     ID,
                     PRECEDING_POSITION.clone(),
                     POSITION.term(),
@@ -437,7 +441,10 @@ mod tests {
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::append_response(ID, true, POSITION.clone())))
+            .with(
+                eq(PEER_ID),
+                eq(cluster::protocol::Message::append_response(ID, true, POSITION.clone())),
+            )
             .return_const(());
 
         let mut relay = MockRelay::new();
@@ -515,7 +522,7 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(Message::append_request(
+                eq(cluster::protocol::Message::append_request(
                     ID,
                     preceding_position,
                     POSITION.term(),
@@ -552,7 +559,7 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(Message::append_request(
+                eq(cluster::protocol::Message::append_request(
                     ID,
                     PRECEDING_POSITION.clone(),
                     POSITION.term(),
@@ -631,7 +638,7 @@ mod tests {
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::vote_response(false, TERM)))
+            .with(eq(PEER_ID), eq(cluster::protocol::Message::vote_response(false, TERM)))
             .return_const(());
 
         let mut relay = MockRelay::new();
@@ -677,9 +684,9 @@ mod tests {
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
-            async fn send(&self, member_id: &Id, message: Message);
-            async fn broadcast(&self, message: Message);
-            async fn receive(&mut self) -> Option<Message>;
+            async fn send(&self, member_id: &Id, message: cluster::protocol::Message);
+            async fn broadcast(&self, message: cluster::protocol::Message);
+            async fn receive(&mut self) -> Option<cluster::protocol::Message>;
         }
     }
 
@@ -687,7 +694,7 @@ mod tests {
         Relay {}
         #[async_trait]
         trait Relay {
-            async fn receive(&mut self) -> Option<Bytes>;
+            async fn receive(&mut self) -> Option<relay::protocol::Message>;
         }
     }
 }
