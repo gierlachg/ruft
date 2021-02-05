@@ -9,7 +9,7 @@ const STORE_REQUEST_MESSAGE_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_MESSAGE_ID: u16 = 2;
 const STORE_REDIRECT_RESPONSE_MESSAGE_ID: u16 = 3;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Display, Debug)]
 pub(crate) enum Message {
     #[display(fmt = "StoreRequest {{ }}")]
     StoreRequest { payload: Bytes },
