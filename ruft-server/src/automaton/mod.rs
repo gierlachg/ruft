@@ -9,7 +9,7 @@ use crate::automaton::candidate::Candidate;
 use crate::automaton::follower::Follower;
 use crate::automaton::leader::Leader;
 use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER};
-use crate::cluster::PhysicalCluster;
+use crate::cluster::{Cluster, PhysicalCluster};
 use crate::relay::PhysicalRelay;
 use crate::storage::volatile::VolatileStorage;
 use crate::{Endpoint, Id};
@@ -44,10 +44,14 @@ impl Automaton {
 
         let mut relay = PhysicalRelay::init(client_endpoint).await?;
 
-        let mut state = State::FOLLOWER {
-            id,
-            term: 0,
-            leader_id: None,
+        let mut state = if cluster.size() == 1 {
+            State::LEADER { id, term: 1 }
+        } else {
+            State::FOLLOWER {
+                id,
+                term: 0,
+                leader_id: None,
+            }
         };
         info!("Starting as: {:?}", state);
         loop {

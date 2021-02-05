@@ -61,7 +61,7 @@ impl Cluster for PhysicalCluster {
     }
 
     fn size(&self) -> usize {
-        self.egresses.len()
+        self.egresses.len() + 1
     }
 
     async fn send(&self, member_id: &Id, message: Message) {
