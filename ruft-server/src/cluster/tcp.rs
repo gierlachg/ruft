@@ -4,13 +4,13 @@ use bytes::{Bytes, BytesMut};
 use futures::SinkExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 const LENGTH_FIELD_OFFSET: usize = 0;
 const LENGTH_FIELD_LENGTH: usize = 4;
 
 pub(crate) struct Writer {
-    writer: Framed<TcpStream, LengthDelimitedCodec>,
+    writer: FramedWrite<TcpStream, LengthDelimitedCodec>,
 }
 
 impl Writer {
@@ -20,7 +20,7 @@ impl Writer {
             .length_field_offset(LENGTH_FIELD_OFFSET)
             .length_field_length(LENGTH_FIELD_LENGTH)
             .little_endian()
-            .new_framed(stream);
+            .new_write(stream);
 
         Ok(Writer { writer })
     }
@@ -46,14 +46,14 @@ impl Listener {
             .length_field_offset(LENGTH_FIELD_OFFSET)
             .length_field_length(LENGTH_FIELD_LENGTH)
             .little_endian()
-            .new_framed(stream);
+            .new_read(stream);
         Ok(Reader { endpoint, reader })
     }
 }
 
 pub(crate) struct Reader {
     endpoint: SocketAddr,
-    reader: Framed<TcpStream, LengthDelimitedCodec>,
+    reader: FramedRead<TcpStream, LengthDelimitedCodec>,
 }
 
 impl Reader {

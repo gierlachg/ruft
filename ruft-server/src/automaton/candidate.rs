@@ -148,9 +148,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
-    use std::fmt::{Display, Formatter};
-
     use async_trait::async_trait;
     use bytes::Bytes;
     use mockall::mock;

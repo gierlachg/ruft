@@ -3,8 +3,6 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::net::SocketAddr;
 
-use derive_more::Display;
-
 use crate::automaton::Automaton;
 
 mod automaton;
@@ -27,8 +25,7 @@ impl RuftServer {
 
 type Id = u8;
 
-#[derive(Eq, PartialEq, Display, Clone)]
-#[display(fmt = "Endpoint {{ id: {}, address: {} }}", id, address)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 struct Endpoint {
     id: Id,
     address: SocketAddr,
