@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use bytes::Bytes;
-use log::LevelFilter;
+use log::{error, info, LevelFilter};
 use log4rs::{
     append::console::ConsoleAppender,
     config::{Appender, Config, Root},
@@ -17,7 +17,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     tokio::spawn(async {
         let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse().unwrap()]).await.unwrap();
 
-        client.store(Bytes::from_static(&[1])).await;
+        match client.store(Bytes::from_static(&[1])).await {
+            Ok(_) => {
+                info!("Successfully stored");
+            }
+            Err(e) => {
+                error!("Failed to store; error = {:?}", e);
+            }
+        };
     })
     .await?;
 

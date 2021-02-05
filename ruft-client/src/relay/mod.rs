@@ -1,16 +1,15 @@
 use std::net::SocketAddr;
 
-use bytes::Bytes;
-
 use crate::relay::protocol::Message;
-use crate::relay::tcp::Writer;
-use crate::Result;
+use crate::relay::protocol::Message::{StoreRedirectResponse, StoreSuccessResponse};
+use crate::relay::tcp::Stream;
+use crate::{Result, RuftClientError};
 
-mod protocol;
+pub(crate) mod protocol;
 mod tcp;
 
 pub(super) struct Relay {
-    leader: Option<Writer>,
+    stream: Option<Stream>,
 }
 
 impl Relay {
@@ -18,18 +17,28 @@ impl Relay {
     where
         E: IntoIterator<Item = SocketAddr>,
     {
-        let leader = match endpoints.into_iter().next() {
-            Some(endpoint) => Some(Writer::connect(&endpoint).await?),
+        let stream = match endpoints.into_iter().next() {
+            Some(endpoint) => Some(Stream::connect(&endpoint).await?),
             None => None,
         };
 
-        Ok(Relay { leader })
+        Ok(Relay { stream })
     }
 
-    pub(super) async fn store(&mut self, payload: Bytes) {
-        if let Some(leader) = self.leader.as_mut() {
-            let message = Message::store_request(1, payload);
-            leader.write(message.into()).await.unwrap();
+    pub(super) async fn store(&mut self, message: Message) -> Result<()> {
+        if let Some(stream) = self.stream.as_mut() {
+            stream.write(message.into()).await?;
+
+            match stream.read().await {
+                Some(Ok(message)) => match Message::from(message) {
+                    StoreSuccessResponse {} => Ok(()),
+                    StoreRedirectResponse {} => Err(RuftClientError::GenericFailure("".into())),
+                    _ => unreachable!(),
+                },
+                _ => Err(RuftClientError::GenericFailure("".into())),
+            }
+        } else {
+            Err(RuftClientError::GenericFailure("".into()))
         }
     }
 }

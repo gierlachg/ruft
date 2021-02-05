@@ -53,9 +53,17 @@ impl Automaton {
         loop {
             state = match match state {
                 FOLLOWER { id, term, leader_id } => {
-                    Follower::init(id, term, &mut storage, &mut cluster, leader_id, election_timeout)
-                        .run()
-                        .await
+                    Follower::init(
+                        id,
+                        term,
+                        &mut storage,
+                        &mut cluster,
+                        &mut relay,
+                        leader_id,
+                        election_timeout,
+                    )
+                    .run()
+                    .await
                 }
                 LEADER { id, term } => {
                     Leader::init(id, term, &mut storage, &mut cluster, &mut relay, heartbeat_interval)
@@ -63,7 +71,7 @@ impl Automaton {
                         .await
                 }
                 CANDIDATE { id, term } => {
-                    Candidate::init(id, term, &mut storage, &mut cluster, election_timeout)
+                    Candidate::init(id, term, &mut storage, &mut cluster, &mut relay, election_timeout)
                         .run()
                         .await
                 }

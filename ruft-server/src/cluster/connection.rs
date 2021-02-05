@@ -5,7 +5,6 @@ use bytes::Bytes;
 use derive_more::Display;
 use log::{error, trace};
 use tokio::signal;
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{mpsc, watch, Mutex};
 use tokio::time;
 use tokio::time::Duration;
@@ -69,7 +68,7 @@ impl Egress {
 #[display(fmt = "{} this", endpoint)]
 pub(super) struct Ingress {
     endpoint: Endpoint,
-    messages: UnboundedReceiver<Bytes>,
+    messages: mpsc::UnboundedReceiver<Bytes>,
 }
 
 impl Ingress {
@@ -90,20 +89,20 @@ impl Ingress {
                             }
                         }
                     }
-                    _result = signal::ctrl_c() => break // TODO: dedup with relay signal
+                    _ = signal::ctrl_c() => break // TODO: dedup with relay signal
                 }
             }
         });
         Ok(Ingress { endpoint, messages: rx })
     }
 
-    fn on_connection(mut reader: Reader, sender: mpsc::UnboundedSender<Bytes>, mut shutdown: watch::Receiver<()>) {
+    fn on_connection(mut reader: Reader, messages: mpsc::UnboundedSender<Bytes>, mut shutdown: watch::Receiver<()>) {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
-                    result =  reader.read() => {
+                    result = reader.read() => {
                         match result {
-                            Some(Ok(message)) => sender.send(message.freeze()).expect("This is unexpected!"),
+                            Some(Ok(message)) => messages.send(message.freeze()).expect("This is unexpected!"),
                             Some(Err(e)) => {
                                 error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint());
                                 break;
@@ -114,7 +113,7 @@ impl Ingress {
                             }
                         }
                     }
-                    _result = shutdown.changed() => break,
+                    _ = shutdown.changed() => break,
                 }
             }
         });

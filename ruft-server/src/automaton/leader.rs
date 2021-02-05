@@ -11,6 +11,7 @@ use crate::relay::protocol::Message::StoreRequest;
 use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
 use crate::{cluster, relay, Id};
+use tokio::sync::mpsc;
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
@@ -64,8 +65,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 _ = ticker.tick() => {
                     self.on_tick().await;
                 }
-                message = self.cluster.receive() => {
-                    match message {
+                result = self.cluster.receive() => {
+                    match result {
                         Some(message) => {
                             if let Some(state) = match message {
                                 AppendRequest { leader_id, preceding_position: _,  term, entries: _ } => {
@@ -85,10 +86,10 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                         None => break
                     }
                 }
-                message = self.relay.receive() => {
-                    match message {
-                        Some(message) => match message {
-                            StoreRequest { id, payload } => self.on_payload(payload).await,
+                result = self.relay.receive() => {
+                    match result {
+                        Some((message, responder)) => match message {
+                            StoreRequest { payload } => self.on_payload(payload, responder).await,
                             _ => unreachable!(),
                         }
                         None => break
@@ -237,8 +238,11 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
     }
 
-    async fn on_payload(&mut self, payload: Bytes) {
+    async fn on_payload(&mut self, payload: Bytes, responder: mpsc::UnboundedSender<relay::protocol::Message>) {
         self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
+        responder
+            .send(relay::protocol::Message::store_success_response())
+            .expect("This is unexpected!");
     }
 }
 
@@ -311,10 +315,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_time_comes_and_was_not_sent_recently_heartbeat_is_sent() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
+
         storage.expect_head().return_const(POSITION.clone());
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
@@ -329,8 +333,6 @@ mod tests {
             )
             .return_const(());
 
-        let mut relay = MockRelay::new();
-
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
         leader.trackers.get_mut(&PEER_ID).unwrap().clear_next_position();
 
@@ -342,12 +344,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_time_comes_but_was_sent_recently_skip() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
         leader.trackers.get_mut(&PEER_ID).unwrap().mark_sent_recently();
@@ -360,10 +359,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_time_comes_last_non_replicated_entry_is_sent() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
+
         storage.expect_at().returning(|_| Some((&PRECEDING_POSITION, &ENTRY)));
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
@@ -378,8 +377,6 @@ mod tests {
             )
             .return_const(());
 
-        let mut relay = MockRelay::new();
-
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
@@ -390,12 +387,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_request_term_greater_then_switch_to_follower() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -417,12 +411,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_request_term_equal_then_panics() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -434,10 +425,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_request_term_less_then_respond() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
+
         storage.expect_head().return_const(POSITION.clone());
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
@@ -446,8 +437,6 @@ mod tests {
                 eq(cluster::protocol::Message::append_response(ID, true, POSITION.clone())),
             )
             .return_const(());
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -461,12 +450,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_response_term_greater_then_switch_to_follower() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -489,13 +475,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_response_successful_and_position_latest_then_update() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
+
         storage.expect_head().return_const(POSITION.clone());
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -512,11 +496,11 @@ mod tests {
         // given
         let preceding_position = Position::of(TERM - 1, 0);
 
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
+
         storage.expect_head().return_const(POSITION.clone());
         storage.expect_next().returning(|_| Some((&POSITION, &ENTRY)));
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
@@ -530,8 +514,6 @@ mod tests {
                 )),
             )
             .return_const(());
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -550,10 +532,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_append_response_failed_then_replicate_and_update() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
+
         storage.expect_at().returning(|_| Some((&PRECEDING_POSITION, &ENTRY)));
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
@@ -567,8 +549,6 @@ mod tests {
                 )),
             )
             .return_const(());
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -587,12 +567,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_vote_request_term_greater_then_switch_to_follower() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -613,12 +590,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_vote_request_term_equal_then_ignore() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -632,16 +606,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn when_vote_request_term_less_then_respond() {
         // given
-        let mut storage = MockStorage::new();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        let mut cluster = MockCluster::new();
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
             .with(eq(PEER_ID), eq(cluster::protocol::Message::vote_response(false, TERM)))
             .return_const(());
-
-        let mut relay = MockRelay::new();
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
@@ -650,6 +621,10 @@ mod tests {
 
         // then
         assert_eq!(state, None);
+    }
+
+    fn infrastructure() -> (MockStorage, MockCluster, MockRelay) {
+        (MockStorage::new(), MockCluster::new(), MockRelay::new())
     }
 
     fn leader<'a>(
@@ -694,7 +669,7 @@ mod tests {
         Relay {}
         #[async_trait]
         trait Relay {
-            async fn receive(&mut self) -> Option<relay::protocol::Message>;
+            async fn receive(&mut self) -> Option<(relay::protocol::Message, mpsc::UnboundedSender<relay::protocol::Message>)>;
         }
     }
 }
