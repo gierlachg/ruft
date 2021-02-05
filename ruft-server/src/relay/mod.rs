@@ -9,6 +9,8 @@ use tokio::sync::{mpsc, watch};
 
 use crate::relay::protocol::Message;
 use crate::relay::tcp::{Listener, Stream};
+use std::fmt;
+use std::fmt::{Display, Formatter};
 
 pub(crate) mod protocol;
 mod tcp;
@@ -19,15 +21,16 @@ pub(crate) trait Relay {
 }
 
 pub(crate) struct PhysicalRelay {
+    endpoint: SocketAddr,
     messages: mpsc::UnboundedReceiver<(Bytes, mpsc::UnboundedSender<Message>)>,
 }
 
 impl PhysicalRelay {
-    pub(crate) async fn init(client_endpoint: SocketAddr) -> Result<Self, Box<dyn Error + Send + Sync>>
+    pub(crate) async fn init(endpoint: SocketAddr) -> Result<Self, Box<dyn Error + Send + Sync>>
     where
         Self: Sized,
     {
-        let mut listener = Listener::bind(&client_endpoint).await?;
+        let mut listener = Listener::bind(&endpoint).await?;
 
         let (tx, rx) = mpsc::unbounded_channel();
         tokio::spawn(async move {
@@ -47,7 +50,7 @@ impl PhysicalRelay {
                 }
             }
         });
-        Ok(PhysicalRelay { messages: rx })
+        Ok(PhysicalRelay { endpoint, messages: rx })
     }
 
     fn on_connection(
@@ -92,5 +95,11 @@ impl Relay for PhysicalRelay {
             .recv()
             .await
             .map(|(bytes, responder)| (Message::from(bytes), responder))
+    }
+}
+
+impl Display for PhysicalRelay {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.endpoint)
     }
 }

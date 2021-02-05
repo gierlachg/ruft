@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::fmt::Display;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -11,7 +10,7 @@ pub(crate) fn noop_message() -> Bytes {
 }
 
 #[async_trait]
-pub(crate) trait Storage: Display {
+pub(crate) trait Storage {
     fn head(&self) -> &Position;
 
     async fn extend(&mut self, term: u64, entries: Vec<Bytes>) -> Position;

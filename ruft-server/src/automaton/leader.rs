@@ -647,12 +647,6 @@ mod tests {
         }
     }
 
-    impl Display for MockStorage {
-        fn fmt(&self, _formatter: &mut Formatter<'_>) -> fmt::Result {
-            Ok(())
-        }
-    }
-
     mock! {
         Cluster {}
         #[async_trait]

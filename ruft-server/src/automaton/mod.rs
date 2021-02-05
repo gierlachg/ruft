@@ -43,6 +43,7 @@ impl Automaton {
         info!("{}", &cluster);
 
         let mut relay = PhysicalRelay::init(client_endpoint).await?;
+        info!("Listening for client connections on {}", &relay);
 
         let mut state = if cluster.size() == 1 {
             State::LEADER { id, term: 1 }
@@ -54,6 +55,7 @@ impl Automaton {
             }
         };
         info!("Starting as: {:?}", state);
+
         loop {
             state = match match state {
                 FOLLOWER { id, term, leader_id } => {
