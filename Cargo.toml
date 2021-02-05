@@ -3,5 +3,6 @@
 members = [
     "ruft-server",
     "ruft-client",
+    "ruft-tests",
     "examples",
 ]

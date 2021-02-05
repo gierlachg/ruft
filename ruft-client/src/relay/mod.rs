@@ -1,5 +1,7 @@
 use std::net::SocketAddr;
 
+use tokio::time::{self, Duration};
+
 use crate::relay::protocol::Message;
 use crate::relay::protocol::Message::{StoreRedirectResponse, StoreSuccessResponse};
 use crate::relay::tcp::Stream;
@@ -8,8 +10,11 @@ use crate::{Result, RuftClientError};
 pub(crate) mod protocol;
 mod tcp;
 
+// TODO: configurable
+const CONNECTION_TIMEOUT_MILLIS: u64 = 1_000;
+
 pub(super) struct Relay {
-    stream: Option<Stream>,
+    stream: Stream,
 }
 
 impl Relay {
@@ -17,28 +22,39 @@ impl Relay {
     where
         E: IntoIterator<Item = SocketAddr>,
     {
-        let stream = match endpoints.into_iter().next() {
-            Some(endpoint) => Some(Stream::connect(&endpoint).await?),
-            None => None,
-        };
-
-        Ok(Relay { stream })
+        match endpoints.into_iter().next() {
+            Some(endpoint) => {
+                let mut timer = time::interval(Duration::from_secs(CONNECTION_TIMEOUT_MILLIS));
+                loop {
+                    tokio::select! {
+                        _ = timer.tick() => {
+                            return Err(RuftClientError::GenericFailure("Unable to connect to cluster".into()))
+                        }
+                        result = Stream::connect(&endpoint) => {
+                            match result {
+                                Ok(stream) => return Ok(Relay { stream }),
+                                Err(_) => { }
+                            }
+                        }
+                    }
+                }
+            }
+            None => Err(RuftClientError::GenericFailure("Unable to connect to cluster".into())),
+        }
     }
 
     pub(super) async fn store(&mut self, message: Message) -> Result<()> {
-        if let Some(stream) = self.stream.as_mut() {
-            stream.write(message.into()).await?;
+        self.stream.write(message.into()).await?;
 
-            match stream.read().await {
-                Some(Ok(message)) => match Message::from(message) {
-                    StoreSuccessResponse {} => Ok(()),
-                    StoreRedirectResponse {} => Err(RuftClientError::GenericFailure("".into())),
-                    _ => unreachable!(),
-                },
-                _ => Err(RuftClientError::GenericFailure("".into())),
-            }
-        } else {
-            Err(RuftClientError::GenericFailure("".into()))
+        match self.stream.read().await {
+            Some(Ok(message)) => match Message::from(message) {
+                StoreSuccessResponse {} => Ok(()),
+                StoreRedirectResponse {} => Err(RuftClientError::GenericFailure("".into())),
+                _ => unreachable!(),
+            },
+            _ => Err(RuftClientError::GenericFailure(
+                "Unable to communicate with the cluster".into(),
+            )),
         }
     }
 }

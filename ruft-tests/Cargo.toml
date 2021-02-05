@@ -1,0 +1,13 @@
+[package]
+name = "ruft-tests"
+version = "0.0.1"
+edition = "2018"
+publish = false
+
+[dev-dependencies]
+ruft-server = { path = "../ruft-server" }
+ruft-client = { path = "../ruft-client" }
+
+bytes = "1.0.1"
+
+tokio = { version = "1.0.2", features = ["rt"] }
