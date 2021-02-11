@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use tokio::time::{self, Duration};
+use tokio::time::{self, Duration, Instant};
 
 use crate::relay::protocol::Message;
 use crate::relay::protocol::Message::{StoreRedirectResponse, StoreSuccessResponse};
@@ -24,7 +24,8 @@ impl Relay {
     {
         match endpoints.into_iter().next() {
             Some(endpoint) => {
-                let mut timer = time::interval(Duration::from_secs(CONNECTION_TIMEOUT_MILLIS));
+                let interval = Duration::from_millis(CONNECTION_TIMEOUT_MILLIS);
+                let mut timer = time::interval_at(Instant::now() + interval, interval);
                 loop {
                     tokio::select! {
                         _ = timer.tick() => {
