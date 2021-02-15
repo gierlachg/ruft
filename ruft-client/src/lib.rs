@@ -1,3 +1,5 @@
+#![feature(associated_type_bounds)]
+
 use std::net::SocketAddr;
 
 use bytes::Bytes;
@@ -28,7 +30,7 @@ pub struct RuftClient {
 impl RuftClient {
     pub async fn new<E>(endpoints: E) -> Result<Self>
     where
-        E: IntoIterator<Item = SocketAddr>,
+        E: IntoIterator<Item = SocketAddr, IntoIter: Clone>,
     {
         info!("Initializing Ruft client (version: {})", VERSION);
         let relay = Relay::init(endpoints).await?;
