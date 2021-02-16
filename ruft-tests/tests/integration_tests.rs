@@ -12,9 +12,7 @@ async fn test_successful_store() {
     tokio::spawn(async move { RuftServer::run(client_endpoint, local_endpoint, vec![]).await });
 
     // start client
-    let mut client = RuftClient::new(vec![client_endpoint])
-        .await
-        .expect("Unable to connect to cluster");
+    let mut client = RuftClient::new(vec![client_endpoint]).await.unwrap();
 
     // store some payload
     let result = client.store(Bytes::from_static(&[1])).await;

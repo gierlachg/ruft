@@ -32,7 +32,7 @@ impl Relay {
             endpoints,
             stream: Arc::new(Mutex::new(stream)),
         })
-        .map_err(|_| RuftClientError::GenericFailure("Unable to connect to cluster".into()))
+        .map_err(|_| RuftClientError::GenericFailure("Unable to connect to the cluster".into()))
     }
 
     pub(super) async fn store(&mut self, message: Message) -> Result<()> {
