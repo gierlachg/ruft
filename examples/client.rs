@@ -14,19 +14,15 @@ use ruft_client::RuftClient;
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logger();
 
-    tokio::spawn(async {
-        let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse().unwrap()]).await.unwrap();
-
-        match client.store(Bytes::from_static(&[1])).await {
-            Ok(_) => {
-                info!("Successfully stored");
-            }
-            Err(e) => {
-                error!("Failed to store; error = {:?}", e);
-            }
-        };
-    })
-    .await?;
+    let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse().unwrap()]).await.unwrap();
+    match client.store(Bytes::from_static(&[1])).await {
+        Ok(_) => {
+            info!("Successfully stored");
+        }
+        Err(e) => {
+            error!("Failed to store; error = {:?}", e);
+        }
+    }
 
     Ok(())
 }

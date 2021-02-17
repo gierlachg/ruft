@@ -21,6 +21,13 @@ pub enum RuftClientError {
     GenericNetworkFailure(#[from] std::io::Error),
 }
 
+impl RuftClientError {
+    fn generic_failure(message: &str) -> Result<()> {
+        Err(RuftClientError::GenericFailure(message.into()))
+    }
+}
+
+#[derive(Clone)]
 pub struct RuftClient {
     relay: Relay,
 }
