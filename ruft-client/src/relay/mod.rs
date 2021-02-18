@@ -1,13 +1,14 @@
+use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
-use futures::StreamExt;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use futures::{FutureExt, StreamExt};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{self, Duration};
 
 use crate::relay::protocol::Message;
 use crate::relay::protocol::Message::{StoreRedirectResponse, StoreSuccessResponse};
 use crate::relay::tcp::Stream;
+use crate::relay::State::{DISCONNECTED, DONE};
 use crate::{Result, RuftClientError};
 
 pub(crate) mod protocol;
@@ -17,9 +18,11 @@ mod tcp;
 const CONNECTION_TIMEOUT_MILLIS: u64 = 5_000;
 const MAX_NUMBER_OF_IN_FLIGHT_MESSAGES: usize = 1024;
 
+type Responder = oneshot::Sender<Result<()>>;
+
 #[derive(Clone)]
 pub(super) struct Relay {
-    egress: mpsc::Sender<(Message, oneshot::Sender<Result<()>>)>,
+    egress: mpsc::Sender<(Message, Responder)>,
 }
 
 impl Relay {
@@ -29,12 +32,11 @@ impl Relay {
             Self::connect(endpoints.clone()),
         )
         .await
-        .map(|stream| Arc::new(Mutex::new(stream)))
         .map_err(|_| RuftClientError::GenericFailure("Unable to connect to the cluster".into()))?;
 
         let (tx, rx) = mpsc::channel(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES);
 
-        tokio::spawn(async move { Self::run(endpoints, stream, rx).await });
+        tokio::spawn(async move { Self::run(rx, stream, endpoints).await });
 
         Ok(Relay { egress: tx })
     }
@@ -48,69 +50,108 @@ impl Relay {
         rx.await.expect("Error occurred while receiving response")
     }
 
-    async fn run(
-        endpoints: Vec<SocketAddr>,
-        stream: Arc<Mutex<Option<Stream>>>,
-        mut rx: mpsc::Receiver<(Message, oneshot::Sender<Result<()>>)>,
-    ) {
+    async fn run(mut requests: mpsc::Receiver<(Message, Responder)>, stream: Stream, endpoints: Vec<SocketAddr>) {
+        let mut stream = stream;
+        let mut responders: VecDeque<Responder> = VecDeque::with_capacity(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES);
+
         loop {
-            if let Err(_) = match rx.recv().await {
-                Some((request, responder)) => {
-                    let mut holder = stream.lock().await;
-                    match holder.as_mut() {
-                        Some(writer) => {
-                            match Self::exchange(writer, request).await {
-                                Some(response) => match response {
-                                    StoreSuccessResponse {} => responder.send(Ok(())),
-                                    StoreRedirectResponse {} => {
-                                        // TODO: connect to the leader
-                                        responder.send(RuftClientError::generic_failure(""))
-                                    }
-                                    _ => unreachable!(),
-                                },
-                                None => {
-                                    *holder = None;
-                                    Self::reconnect(endpoints.clone(), stream.clone());
-                                    responder.send(RuftClientError::generic_failure(
-                                        "Error occurred while communicating with the cluster",
-                                    ))
-                                }
-                            }
-                        }
-                        None => responder.send(RuftClientError::generic_failure(
-                            "Unable to communicate with the cluster",
-                        )),
-                    }
-                }
+            match Self::service(&mut requests, stream, &mut responders).await {
+                DISCONNECTED => responders.drain(..).for_each(|responder| {
+                    responder
+                        .send(RuftClientError::generic_failure(
+                            "Error occurred while communicating with the cluster",
+                        ))
+                        .expect("Error occurred while sending response")
+                }),
+                DONE => break,
+            }
+
+            match Self::reconnect(&mut requests, endpoints.clone()).await {
+                Some(s) => stream = s,
                 None => break,
-            } {
-                panic!("Error occurred while sending response")
             }
         }
     }
 
-    async fn exchange(stream: &mut Stream, request: Message) -> Option<Message> {
-        match stream.write(request.into()).await {
-            Ok(_) => stream.read().await.and_then(Result::ok).map(Message::from),
-            Err(_) => None,
+    async fn service(
+        requests: &mut mpsc::Receiver<(Message, Responder)>,
+        mut stream: Stream,
+        responders: &mut VecDeque<Responder>,
+    ) -> State {
+        let (mut writer, mut reader) = stream.split();
+        loop {
+            tokio::select! {
+                result = requests.recv() => {
+                    match result {
+                        Some((request, responder)) => {
+                            responders.push_front(responder);
+                            if let Err(_) = writer.write(request.into()).await {
+                                return DISCONNECTED
+                            }
+                        }
+                        None => break
+                    }
+                }
+                result = reader.read() => {
+                    match result.and_then(Result::ok).map(Message::from) {
+                        Some(response) => {
+                            let responder = responders.pop_back().unwrap();
+                            match response {
+                                StoreSuccessResponse {} => {
+                                    responder.send(Ok(())).expect("Error occurred while sending response");
+                                }
+                                StoreRedirectResponse {} => {
+                                    // TODO: connect to the leader
+                                    responder
+                                        .send(RuftClientError::generic_failure(""))
+                                        .expect("Error occurred while sending response");
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        None => return DISCONNECTED
+                    }
+                }
+            }
         }
+        DONE
     }
 
-    fn reconnect(endpoints: Vec<SocketAddr>, holder: Arc<Mutex<Option<Stream>>>) {
-        tokio::spawn(async move {
-            match Self::connect(endpoints).await {
-                Some(stream) => holder.lock().await.replace(stream),
-                None => unreachable!(),
-            };
-        });
+    async fn reconnect(
+        requests: &mut mpsc::Receiver<(Message, Responder)>,
+        endpoints: Vec<SocketAddr>,
+    ) -> Option<Stream> {
+        let mut streams = Box::pin(Self::connect(endpoints).into_stream());
+        loop {
+            tokio::select! {
+                result = requests.recv() => {
+                    match result {
+                        Some((_, responder)) => {
+                            responder.send(RuftClientError::generic_failure(
+                                "Unable to communicate with the cluster",
+                            )).expect("Error occurred while sending response");
+                        }
+                        None => break
+                    }
+                }
+                stream = streams.next() => return stream
+            }
+        }
+        None
     }
 
-    async fn connect(endpoints: Vec<SocketAddr>) -> Option<Stream> {
+    async fn connect(endpoints: Vec<SocketAddr>) -> Stream {
         Box::pin(
             tokio_stream::iter(endpoints.iter().cycle())
                 .filter_map(|endpoint| async move { Stream::connect(&endpoint).await.ok() }),
         )
         .next()
         .await
+        .expect("That really should not happen")
     }
+}
+
+enum State {
+    DISCONNECTED,
+    DONE,
 }
