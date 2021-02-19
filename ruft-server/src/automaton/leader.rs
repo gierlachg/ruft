@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use futures::future::join_all;
+use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
@@ -11,7 +12,6 @@ use crate::relay::protocol::Message::StoreRequest;
 use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
 use crate::{cluster, relay, Id};
-use tokio::sync::mpsc;
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
@@ -163,57 +163,38 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 term: position.term(),
                 leader_id: None,
             })
-        } else if success {
-            if position == *self.storage.head() {
-                match self.trackers.get_mut(&member_id) {
-                    Some(tracker) => tracker.clear_next_position(),
-                    None => panic!("Missing member of id: {}", member_id),
-                }
-            } else {
-                match self.trackers.get_mut(&member_id) {
-                    Some(tracker) => {
-                        let preceding_position = position;
-                        match self.storage.next(&preceding_position).await {
-                            Some((position, entry)) => {
-                                let message = cluster::protocol::Message::append_request(
-                                    self.id,
-                                    preceding_position,
-                                    position.term(),
-                                    vec![entry.clone()],
-                                );
-                                self.cluster.send(&member_id, message).await;
-
-                                tracker.update_next_position(position.clone());
-                                tracker.mark_sent_recently();
-                            }
-                            None => panic!("Missing entry at {:?}", &position),
-                        };
-                    }
-                    None => panic!("Missing tracker for id: {}", member_id),
-                }
+        } else if success && position == *self.storage.head() {
+            match self.trackers.get_mut(&member_id) {
+                Some(tracker) => tracker.clear_next_position(),
+                None => panic!("Missing member of id: {}", member_id),
             }
             None
         } else {
-            match self.trackers.get_mut(&member_id) {
-                Some(tracker) => {
-                    match self.storage.at(&position).await {
-                        Some((preceding_position, entry)) => {
-                            let message = cluster::protocol::Message::append_request(
-                                self.id,
-                                *preceding_position,
-                                position.term(),
-                                vec![entry.clone()],
-                            );
-                            self.cluster.send(&member_id, message).await;
+            let tracker = self.trackers.get_mut(&member_id).expect("Missing tracker");
+            let (preceding_position, position, entry) = if success {
+                self.storage
+                    .next(&position)
+                    .await
+                    .map(|(p, e)| (position, p.clone(), e))
+                    .expect("Missing entry")
+            } else {
+                self.storage
+                    .at(&position)
+                    .await
+                    .map(|(p, e)| (p.clone(), position, e))
+                    .expect("Missing entry")
+            };
 
-                            tracker.update_next_position(position);
-                            tracker.mark_sent_recently();
-                        }
-                        None => panic!("Missing entry at {:?}", &position),
-                    };
-                }
-                None => panic!("Missing tracker for id: {}", member_id),
-            }
+            let message = cluster::protocol::Message::append_request(
+                self.id,
+                preceding_position,
+                position.term(),
+                vec![entry.clone()],
+            );
+            self.cluster.send(&member_id, message).await;
+
+            tracker.update_next_position(position);
+            tracker.mark_sent_recently();
             None
         }
     }
