@@ -6,12 +6,12 @@ use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::cluster::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::ServerMessage::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Message::StoreRequest;
+use crate::relay::protocol::ClientMessage::{self, StoreRequest};
 use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
-use crate::{cluster, relay, Id};
+use crate::Id;
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
@@ -118,7 +118,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         match position {
             Some(position) => match self.storage.at(&position).await {
                 Some((preceding_position, entry)) => {
-                    let message = cluster::protocol::Message::append_request(
+                    let message = ServerMessage::append_request(
                         self.id,
                         *preceding_position,
                         position.term(),
@@ -129,8 +129,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 None => panic!("Missing entry at {:?}", &position),
             },
             None => {
-                let message =
-                    cluster::protocol::Message::append_request(self.id, *self.storage.head(), self.term, vec![]);
+                let message = ServerMessage::append_request(self.id, *self.storage.head(), self.term, vec![]);
                 self.cluster.send(member_id, message).await;
             }
         }
@@ -149,7 +148,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             self.cluster
                 .send(
                     &leader_id,
-                    cluster::protocol::Message::append_response(self.id, true, self.storage.head().clone()),
+                    ServerMessage::append_response(self.id, true, self.storage.head().clone()),
                 )
                 .await;
             None
@@ -185,12 +184,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                     .expect("Missing entry")
             };
 
-            let message = cluster::protocol::Message::append_request(
-                self.id,
-                preceding_position,
-                position.term(),
-                vec![entry.clone()],
-            );
+            let message =
+                ServerMessage::append_request(self.id, preceding_position, position.term(), vec![entry.clone()]);
             self.cluster.send(&member_id, message).await;
 
             tracker.update_next_position(position);
@@ -208,10 +203,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             })
         } else if term < self.term {
             self.cluster
-                .send(
-                    &candidate_id,
-                    cluster::protocol::Message::vote_response(false, self.term),
-                )
+                .send(&candidate_id, ServerMessage::vote_response(false, self.term))
                 .await;
             None
         } else {
@@ -219,10 +211,10 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
     }
 
-    async fn on_payload(&mut self, payload: Bytes, responder: mpsc::UnboundedSender<relay::protocol::Message>) {
+    async fn on_payload(&mut self, payload: Bytes, responder: mpsc::UnboundedSender<ClientMessage>) {
         self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
         responder
-            .send(relay::protocol::Message::store_success_response())
+            .send(ClientMessage::store_success_response())
             .expect("This is unexpected!");
     }
 }
@@ -274,6 +266,8 @@ mod tests {
     use predicate::eq;
     use tokio::time::Duration;
 
+    use crate::cluster::protocol::ServerMessage;
+    use crate::relay::protocol::ClientMessage;
     use crate::storage::Position;
     use crate::Id;
 
@@ -302,12 +296,7 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(cluster::protocol::Message::append_request(
-                    ID,
-                    POSITION.clone(),
-                    TERM,
-                    vec![],
-                )),
+                eq(ServerMessage::append_request(ID, POSITION.clone(), TERM, vec![])),
             )
             .return_const(());
 
@@ -346,7 +335,7 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(cluster::protocol::Message::append_request(
+                eq(ServerMessage::append_request(
                     ID,
                     PRECEDING_POSITION.clone(),
                     POSITION.term(),
@@ -412,7 +401,7 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(cluster::protocol::Message::append_response(ID, true, POSITION.clone())),
+                eq(ServerMessage::append_response(ID, true, POSITION.clone())),
             )
             .return_const(());
 
@@ -484,7 +473,7 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(cluster::protocol::Message::append_request(
+                eq(ServerMessage::append_request(
                     ID,
                     preceding_position,
                     POSITION.term(),
@@ -519,7 +508,7 @@ mod tests {
             .expect_send()
             .with(
                 eq(PEER_ID),
-                eq(cluster::protocol::Message::append_request(
+                eq(ServerMessage::append_request(
                     ID,
                     PRECEDING_POSITION.clone(),
                     POSITION.term(),
@@ -589,7 +578,7 @@ mod tests {
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(cluster::protocol::Message::vote_response(false, TERM)))
+            .with(eq(PEER_ID), eq(ServerMessage::vote_response(false, TERM)))
             .return_const(());
 
         let mut leader = leader(&mut storage, &mut cluster, &mut relay);
@@ -631,9 +620,9 @@ mod tests {
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
-            async fn send(&self, member_id: &Id, message: cluster::protocol::Message);
-            async fn broadcast(&self, message: cluster::protocol::Message);
-            async fn receive(&mut self) -> Option<cluster::protocol::Message>;
+            async fn send(&self, member_id: &Id, message: ServerMessage);
+            async fn broadcast(&self, message: ServerMessage);
+            async fn receive(&mut self) -> Option<ServerMessage>;
         }
     }
 
@@ -641,7 +630,7 @@ mod tests {
         Relay {}
         #[async_trait]
         trait Relay {
-            async fn receive(&mut self) -> Option<(relay::protocol::Message, mpsc::UnboundedSender<relay::protocol::Message>)>;
+            async fn receive(&mut self) -> Option<(ClientMessage, mpsc::UnboundedSender<ClientMessage>)>;
         }
     }
 }

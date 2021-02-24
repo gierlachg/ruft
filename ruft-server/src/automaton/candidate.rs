@@ -1,13 +1,13 @@
+use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::ServerMessage::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Message::StoreRequest;
+use crate::relay::protocol::ClientMessage::{self, StoreRequest};
 use crate::relay::Relay;
 use crate::storage::Storage;
-use crate::{relay, Id};
-use tokio::sync::mpsc;
+use crate::Id;
 
 pub(super) struct Candidate<'a, S: Storage, C: Cluster, R: Relay> {
     id: Id,
@@ -85,7 +85,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         self.term += 1;
         self.granted_votes = 1;
         self.cluster
-            .broadcast(Message::vote_request(self.id, self.term, *self.storage.head()))
+            .broadcast(ServerMessage::vote_request(self.id, self.term, *self.storage.head()))
             .await;
     }
 
@@ -104,7 +104,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     async fn on_vote_request(&mut self, candidate_id: Id, term: u64) -> Option<State> {
         if term > self.term {
             self.cluster
-                .send(&candidate_id, Message::vote_response(true, term))
+                .send(&candidate_id, ServerMessage::vote_response(true, term))
                 .await;
 
             Some(State::FOLLOWER {
@@ -139,9 +139,9 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         }
     }
 
-    async fn on_payload(&mut self, responder: mpsc::UnboundedSender<relay::protocol::Message>) {
+    async fn on_payload(&mut self, responder: mpsc::UnboundedSender<ClientMessage>) {
         responder
-            .send(relay::protocol::Message::store_redirect_response())
+            .send(ClientMessage::store_redirect_response())
             .expect("This is unexpected!");
     }
 }
@@ -154,7 +154,8 @@ mod tests {
     use mockall::predicate::eq;
     use tokio::time::Duration;
 
-    use crate::cluster::protocol::Message;
+    use crate::cluster::protocol::ServerMessage;
+    use crate::relay::protocol::ClientMessage;
     use crate::storage::Position;
     use crate::Id;
 
@@ -228,7 +229,7 @@ mod tests {
 
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::vote_response(true, TERM + 1)))
+            .with(eq(PEER_ID), eq(ServerMessage::vote_response(true, TERM + 1)))
             .return_const(());
 
         let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
@@ -387,9 +388,9 @@ mod tests {
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
-            async fn send(&self, member_id: &Id, message: Message);
-            async fn broadcast(&self, message: Message);
-            async fn receive(&mut self) -> Option<Message>;
+            async fn send(&self, member_id: &Id, message: ServerMessage);
+            async fn broadcast(&self, message: ServerMessage);
+            async fn receive(&mut self) -> Option<ServerMessage>;
         }
     }
 
@@ -397,7 +398,7 @@ mod tests {
         Relay {}
         #[async_trait]
         trait Relay {
-            async fn receive(&mut self) -> Option<(relay::protocol::Message, mpsc::UnboundedSender<relay::protocol::Message>)>;
+            async fn receive(&mut self) -> Option<(ClientMessage, mpsc::UnboundedSender<ClientMessage>)>;
         }
     }
 }

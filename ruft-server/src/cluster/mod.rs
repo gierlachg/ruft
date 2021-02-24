@@ -8,7 +8,7 @@ use bytes::Bytes;
 use futures::future::join_all;
 
 use crate::cluster::connection::{Egress, Ingress};
-use crate::cluster::protocol::Message;
+use crate::cluster::protocol::ServerMessage;
 use crate::{Endpoint, Id};
 
 mod connection;
@@ -21,11 +21,11 @@ pub(crate) trait Cluster {
 
     fn size(&self) -> usize;
 
-    async fn send(&self, member_id: &Id, message: Message);
+    async fn send(&self, member_id: &Id, message: ServerMessage);
 
-    async fn broadcast(&self, message: Message);
+    async fn broadcast(&self, message: ServerMessage);
 
-    async fn receive(&mut self) -> Option<Message>;
+    async fn receive(&mut self) -> Option<ServerMessage>;
 }
 
 pub(crate) struct PhysicalCluster {
@@ -64,14 +64,14 @@ impl Cluster for PhysicalCluster {
         self.egresses.len() + 1
     }
 
-    async fn send(&self, member_id: &Id, message: Message) {
+    async fn send(&self, member_id: &Id, message: ServerMessage) {
         match self.egresses.get(&member_id) {
             Some(egress) => egress.send(message.into()).await,
             None => panic!("Missing member of id: {}", member_id),
         }
     }
 
-    async fn broadcast(&self, message: Message) {
+    async fn broadcast(&self, message: ServerMessage) {
         let message: Bytes = message.into();
 
         let futures = self
@@ -82,8 +82,8 @@ impl Cluster for PhysicalCluster {
         join_all(futures).await;
     }
 
-    async fn receive(&mut self) -> Option<Message> {
-        self.ingress.next().await.map(Message::from)
+    async fn receive(&mut self) -> Option<ServerMessage> {
+        self.ingress.next().await.map(ServerMessage::from)
     }
 }
 

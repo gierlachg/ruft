@@ -1,15 +1,15 @@
 use bytes::Bytes;
 use log::info;
+use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::ServerMessage::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Message::StoreRequest;
+use crate::relay::protocol::ClientMessage::{self, StoreRequest};
 use crate::relay::Relay;
 use crate::storage::{Position, Storage};
-use crate::{relay, Id};
-use tokio::sync::mpsc;
+use crate::Id;
 
 pub(super) struct Follower<'a, S: Storage, C: Cluster, R: Relay> {
     id: Id,
@@ -94,13 +94,13 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
             Ok(position) => {
                 info!("Accepted: {:?}", position);
                 self.cluster
-                    .send(&leader_id, Message::append_response(self.id, true, position))
+                    .send(&leader_id, ServerMessage::append_response(self.id, true, position))
                     .await
             }
             Err(position) => {
                 info!("Missing: {:?}", position);
                 self.cluster
-                    .send(&leader_id, Message::append_response(self.id, false, position))
+                    .send(&leader_id, ServerMessage::append_response(self.id, false, position))
                     .await
             }
         }
@@ -113,18 +113,18 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
             self._leader_id = None;
 
             self.cluster
-                .send(&candidate_id, Message::vote_response(true, self.term))
+                .send(&candidate_id, ServerMessage::vote_response(true, self.term))
                 .await;
         } else if term < self.term {
             self.cluster
-                .send(&candidate_id, Message::vote_response(false, self.term))
+                .send(&candidate_id, ServerMessage::vote_response(false, self.term))
                 .await;
         }
     }
 
-    async fn on_payload(&mut self, responder: mpsc::UnboundedSender<relay::protocol::Message>) {
+    async fn on_payload(&mut self, responder: mpsc::UnboundedSender<ClientMessage>) {
         responder
-            .send(relay::protocol::Message::store_redirect_response())
+            .send(ClientMessage::store_redirect_response())
             .expect("This is unexpected!");
     }
 }
@@ -137,7 +137,8 @@ mod tests {
     use predicate::eq;
     use tokio::time::Duration;
 
-    use crate::cluster::protocol::Message;
+    use crate::cluster::protocol::ServerMessage;
+    use crate::relay::protocol::ClientMessage;
     use crate::storage::Position;
     use crate::Id;
 
@@ -163,7 +164,7 @@ mod tests {
 
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::append_response(ID, true, position)))
+            .with(eq(PEER_ID), eq(ServerMessage::append_response(ID, true, position)))
             .return_const(());
 
         let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
@@ -191,7 +192,7 @@ mod tests {
 
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::append_response(ID, false, position)))
+            .with(eq(PEER_ID), eq(ServerMessage::append_response(ID, false, position)))
             .return_const(());
 
         let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
@@ -215,7 +216,7 @@ mod tests {
 
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::vote_response(true, TERM + 1)))
+            .with(eq(PEER_ID), eq(ServerMessage::vote_response(true, TERM + 1)))
             .return_const(());
 
         let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
@@ -256,7 +257,7 @@ mod tests {
 
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(Message::vote_response(false, TERM)))
+            .with(eq(PEER_ID), eq(ServerMessage::vote_response(false, TERM)))
             .return_const(());
 
         let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
@@ -300,9 +301,9 @@ mod tests {
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
-            async fn send(&self, member_id: &Id, message: Message);
-            async fn broadcast(&self, message: Message);
-            async fn receive(&mut self) -> Option<Message>;
+            async fn send(&self, member_id: &Id, message: ServerMessage);
+            async fn broadcast(&self, message: ServerMessage);
+            async fn receive(&mut self) -> Option<ServerMessage>;
         }
     }
 
@@ -310,7 +311,7 @@ mod tests {
         Relay {}
         #[async_trait]
         trait Relay {
-            async fn receive(&mut self) -> Option<(relay::protocol::Message, mpsc::UnboundedSender<relay::protocol::Message>)>;
+            async fn receive(&mut self) -> Option<(ClientMessage, mpsc::UnboundedSender<ClientMessage>)>;
         }
     }
 }

@@ -7,7 +7,7 @@ use log::{error, trace};
 use tokio::signal;
 use tokio::sync::{mpsc, watch};
 
-use crate::relay::protocol::Message;
+use crate::relay::protocol::ClientMessage;
 use crate::relay::tcp::{Listener, Stream};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -17,12 +17,12 @@ mod tcp;
 
 #[async_trait]
 pub(crate) trait Relay {
-    async fn receive(&mut self) -> Option<(Message, mpsc::UnboundedSender<Message>)>;
+    async fn receive(&mut self) -> Option<(ClientMessage, mpsc::UnboundedSender<ClientMessage>)>;
 }
 
 pub(crate) struct PhysicalRelay {
     endpoint: SocketAddr,
-    messages: mpsc::UnboundedReceiver<(Bytes, mpsc::UnboundedSender<Message>)>,
+    messages: mpsc::UnboundedReceiver<(Bytes, mpsc::UnboundedSender<ClientMessage>)>,
 }
 
 impl PhysicalRelay {
@@ -55,7 +55,7 @@ impl PhysicalRelay {
 
     fn on_connection(
         mut stream: Stream,
-        messages: mpsc::UnboundedSender<(Bytes, mpsc::UnboundedSender<Message>)>,
+        messages: mpsc::UnboundedSender<(Bytes, mpsc::UnboundedSender<ClientMessage>)>,
         mut shutdown: watch::Receiver<()>,
     ) {
         tokio::spawn(async move {
@@ -90,11 +90,11 @@ impl PhysicalRelay {
 
 #[async_trait]
 impl Relay for PhysicalRelay {
-    async fn receive(&mut self) -> Option<(Message, mpsc::UnboundedSender<Message>)> {
+    async fn receive(&mut self) -> Option<(ClientMessage, mpsc::UnboundedSender<ClientMessage>)> {
         self.messages
             .recv()
             .await
-            .map(|(bytes, responder)| (Message::from(bytes), responder))
+            .map(|(bytes, responder)| (ClientMessage::from(bytes), responder))
     }
 }
 

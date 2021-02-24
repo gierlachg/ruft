@@ -3,14 +3,14 @@ use std::convert::TryInto;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use derive_more::Display;
 
-use crate::relay::protocol::Message::{StoreRedirectResponse, StoreRequest, StoreSuccessResponse};
+use crate::relay::protocol::ClientMessage::{StoreRedirectResponse, StoreRequest, StoreSuccessResponse};
 
 const STORE_REQUEST_MESSAGE_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_MESSAGE_ID: u16 = 2;
 const STORE_REDIRECT_RESPONSE_MESSAGE_ID: u16 = 3;
 
 #[derive(PartialEq, Display, Debug)]
-pub(crate) enum Message {
+pub(crate) enum ClientMessage {
     #[display(fmt = "StoreRequest {{ }}")]
     StoreRequest { payload: Bytes },
 
@@ -21,7 +21,7 @@ pub(crate) enum Message {
     StoreRedirectResponse {}, // TODO: pass the leader ip/id
 }
 
-impl Message {
+impl ClientMessage {
     pub(crate) fn store_success_response() -> Self {
         StoreSuccessResponse {}
     }
@@ -31,7 +31,7 @@ impl Message {
     }
 }
 
-impl Into<Bytes> for Message {
+impl Into<Bytes> for ClientMessage {
     fn into(self) -> Bytes {
         let mut bytes = BytesMut::new();
         match self {
@@ -47,7 +47,7 @@ impl Into<Bytes> for Message {
     }
 }
 
-impl From<Bytes> for Message {
+impl From<Bytes> for ClientMessage {
     fn from(mut bytes: Bytes) -> Self {
         let r#type = bytes.get_u16_le();
         match r#type {
