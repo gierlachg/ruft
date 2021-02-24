@@ -18,6 +18,8 @@ mod tcp;
 const CONNECTION_TIMEOUT_MILLIS: u64 = 5_000;
 const MAX_NUMBER_OF_IN_FLIGHT_MESSAGES: usize = 1024;
 
+const SENDING_RESPONSE_ERROR: &str = "Error occurred while sending response";
+
 type Responder = oneshot::Sender<Result<()>>;
 
 #[derive(Clone)]
@@ -61,7 +63,7 @@ impl Relay {
                         .send(RuftClientError::generic_failure(
                             "Error occurred while communicating with the cluster",
                         ))
-                        .expect("Error occurred while sending response")
+                        .expect(SENDING_RESPONSE_ERROR)
                 }),
                 DONE => break,
             }
@@ -98,13 +100,13 @@ impl Relay {
                             let responder = responders.pop_back().unwrap();
                             match response {
                                 StoreSuccessResponse {} => {
-                                    responder.send(Ok(())).expect("Error occurred while sending response");
+                                    responder.send(Ok(())).expect(SENDING_RESPONSE_ERROR);
                                 }
                                 StoreRedirectResponse {} => {
                                     // TODO: connect to the leader
                                     responder
                                         .send(RuftClientError::generic_failure(""))
-                                        .expect("Error occurred while sending response");
+                                        .expect(SENDING_RESPONSE_ERROR);
                                 }
                                 _ => unreachable!(),
                             }
