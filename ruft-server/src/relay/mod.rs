@@ -37,15 +37,13 @@ impl PhysicalRelay {
             let (_shutdown_tx, shutdown_rx) = watch::channel(());
             loop {
                 tokio::select! {
-                    result = listener.next() => {
-                        match result {
-                            Ok(stream) => Self::on_connection(stream, tx.clone(), shutdown_rx.clone()),
-                            Err(e) => {
-                                trace!("Error accepting connection; error = {:?}", e);
-                                break;
-                            }
+                    result = listener.next() => match result {
+                        Ok(stream) => Self::on_connection(stream, tx.clone(), shutdown_rx.clone()),
+                        Err(e) => {
+                            trace!("Error accepting connection; error = {:?}", e);
+                            break
                         }
-                    }
+                    },
                     _ = signal::ctrl_c() => break // TODO: dedup with cluster signal
                 }
             }
@@ -62,26 +60,24 @@ impl PhysicalRelay {
             let (tx, mut rx) = mpsc::unbounded_channel();
             loop {
                 tokio::select! {
-                    result = stream.read() => {
-                        match result {
-                            Some(Ok(message)) => messages.send((message.freeze(), tx.clone())).expect("This is unexpected!"),
-                            Some(Err(e)) => {
-                                error!("Communication error; error = {:?}. Closing {} connection.", e, &stream.endpoint());
-                                break;
-                            }
-                            None => {
-                                trace!("{} connection closed by peer.", &stream.endpoint());
-                                break;
-                            }
+                    result = stream.read() => match result {
+                        Some(Ok(message)) => messages.send((message.freeze(), tx.clone())).expect("This is unexpected!"),
+                        Some(Err(e)) => {
+                            error!("Communication error; error = {:?}. Closing {} connection.", e, &stream.endpoint());
+                            break
                         }
-                    }
+                        None => {
+                            trace!("{} connection closed by peer.", &stream.endpoint());
+                            break
+                        }
+                    },
                     message = rx.recv() => {
                         if let Err(e) = stream.write(message.expect("This is unexpected!").into()).await {
                             error!("Unable to respond to {}; error = {:?}.", &stream.endpoint(), e);
-                            break;
+                            break
                         }
-                    }
-                    _ = shutdown.changed() => break,
+                    },
+                    _ = shutdown.changed() => break
                 }
             }
         });

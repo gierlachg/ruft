@@ -49,36 +49,31 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
             tokio::select! {
                 _ = time::sleep(self.election_timeout) => {
                     return Some(State::CANDIDATE { id: self.id, term: self.term })
-                }
-                message = self.cluster.receive() => {
-                    match message {
-                        Some(message) => {
-                            match message {
-                                AppendRequest { leader_id, preceding_position, term, entries } => {
-                                    self.on_append_request(leader_id, preceding_position, term, entries).await
-                                }
-                                AppendResponse { member_id: _, success: _, position: _ } => {},
-                                VoteRequest { candidate_id, term, position } => {
-                                    self.on_vote_request(candidate_id, term, position).await
-                                }
-                                VoteResponse { vote_granted : _, term: _ } => {},
+                },
+                message = self.cluster.receive() => match message {
+                    Some(message) => {
+                        match message {
+                            AppendRequest { leader_id, preceding_position, term, entries } => {
+                                self.on_append_request(leader_id, preceding_position, term, entries).await
                             }
+                            AppendResponse { member_id: _, success: _, position: _ } => {},
+                            VoteRequest { candidate_id, term, position } => {
+                                self.on_vote_request(candidate_id, term, position).await
+                            }
+                            VoteResponse { vote_granted : _, term: _ } => {},
                         }
-                        None => break
                     }
-                }
-                result = self.relay.receive() => {
-                    match result {
-                        Some((message, responder)) => match message {
-                            StoreRequest { payload: _ } => self.on_payload(responder).await,
-                            _ => unreachable!(),
-                        }
-                        None => break
+                    None => return None
+                },
+                result = self.relay.receive() => match result {
+                    Some((message, responder)) => match message {
+                        StoreRequest { payload: _ } => self.on_payload(responder).await,
+                        _ => unreachable!(),
                     }
+                    None => return None
                 }
             }
         }
-        None
     }
 
     async fn on_append_request(&mut self, leader_id: Id, preceding_position: Position, term: u64, entries: Vec<Bytes>) {

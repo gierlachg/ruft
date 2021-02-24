@@ -83,40 +83,35 @@ impl Relay {
         let (mut writer, mut reader) = stream.split();
         loop {
             tokio::select! {
-                result = requests.recv() => {
-                    match result {
-                        Some((request, responder)) => {
-                            responders.push_front(responder);
-                            if let Err(_) = writer.write(request.into()).await {
-                                return DISCONNECTED
-                            }
+                result = requests.recv() => match result {
+                    Some((request, responder)) => {
+                        responders.push_front(responder);
+                        if let Err(_) = writer.write(request.into()).await {
+                            return DISCONNECTED
                         }
-                        None => break
                     }
-                }
-                result = reader.read() => {
-                    match result.and_then(Result::ok).map(Message::from) {
-                        Some(response) => {
-                            let responder = responders.pop_back().unwrap();
-                            match response {
-                                StoreSuccessResponse {} => {
-                                    responder.send(Ok(())).expect(SENDING_RESPONSE_ERROR);
-                                }
-                                StoreRedirectResponse {} => {
-                                    // TODO: connect to the leader
-                                    responder
-                                        .send(RuftClientError::generic_failure(""))
-                                        .expect(SENDING_RESPONSE_ERROR);
-                                }
-                                _ => unreachable!(),
+                    None => return DONE,
+                },
+                result = reader.read() =>  match result.and_then(Result::ok).map(Message::from) {
+                    Some(response) => {
+                        let responder = responders.pop_back().unwrap();
+                        match response {
+                            StoreSuccessResponse {} => {
+                                responder.send(Ok(())).expect(SENDING_RESPONSE_ERROR);
                             }
+                            StoreRedirectResponse {} => {
+                                // TODO: connect to the leader
+                                responder
+                                    .send(RuftClientError::generic_failure(""))
+                                    .expect(SENDING_RESPONSE_ERROR);
+                            }
+                            _ => unreachable!(),
                         }
-                        None => return DISCONNECTED
                     }
+                    None => return DISCONNECTED
                 }
             }
         }
-        DONE
     }
 
     async fn reconnect(

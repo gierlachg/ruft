@@ -63,41 +63,36 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
-                    self.on_tick().await;
-                }
-                result = self.cluster.receive() => {
-                    match result {
-                        Some(message) => {
-                            if let Some(state) = match message {
-                                AppendRequest { leader_id, preceding_position: _,  term, entries: _ } => {
-                                    self.on_append_request(leader_id, term).await
-                                }
-                                AppendResponse { member_id, success, position } => {
-                                    self.on_append_response(member_id, success, position).await
-                                }
-                                VoteRequest { candidate_id, term, position: _ } => {
-                                    self.on_vote_request(candidate_id, term).await
-                                }
-                                VoteResponse { vote_granted: _, term: _ } => None,
-                            } {
-                                return Some(state)
+                    self.on_tick().await
+                },
+                result = self.cluster.receive() => match result {
+                    Some(message) => {
+                        if let Some(state) = match message {
+                            AppendRequest { leader_id, preceding_position: _,  term, entries: _ } => {
+                                self.on_append_request(leader_id, term).await
                             }
+                            AppendResponse { member_id, success, position } => {
+                                self.on_append_response(member_id, success, position).await
+                            }
+                            VoteRequest { candidate_id, term, position: _ } => {
+                                self.on_vote_request(candidate_id, term).await
+                            }
+                            VoteResponse { vote_granted: _, term: _ } => None,
+                        } {
+                            return Some(state)
                         }
-                        None => break
                     }
-                }
-                result = self.relay.receive() => {
-                    match result {
-                        Some((message, responder)) => match message {
-                            StoreRequest { payload } => self.on_payload(payload, responder).await,
-                            _ => unreachable!(),
-                        }
-                        None => break
+                    None => return None
+                },
+                result = self.relay.receive() => match result {
+                    Some((message, responder)) => match message {
+                        StoreRequest { payload } => self.on_payload(payload, responder).await,
+                        _ => unreachable!(),
                     }
+                    None => return None
                 }
             }
         }
-        None
     }
 
     async fn on_tick(&mut self) {

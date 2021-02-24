@@ -46,39 +46,34 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         loop {
             tokio::select! {
                 _ = election_timer.tick() => {
-                    self.on_election_timeout().await;
-                }
-                message = self.cluster.receive() => {
-                    match message {
-                        Some(message) => {
-                            if let Some (state) = match message {
-                                AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
-                                    self.on_append_request(leader_id, term)
-                                }
-                                AppendResponse { member_id: _, success: _, position: _ } => None,
-                                VoteRequest { candidate_id, term, position: _ } => {
-                                    self.on_vote_request(candidate_id, term).await
-                                }
-                                VoteResponse { vote_granted, term } => self.on_vote_response(vote_granted, term),
-                            } {
-                                return Some(state)
+                    self.on_election_timeout().await
+                },
+                message = self.cluster.receive() => match message {
+                    Some(message) => {
+                        if let Some(state) = match message {
+                            AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
+                                self.on_append_request(leader_id, term)
                             }
+                            AppendResponse { member_id: _, success: _, position: _ } => None,
+                            VoteRequest { candidate_id, term, position: _ } => {
+                                self.on_vote_request(candidate_id, term).await
+                            }
+                            VoteResponse { vote_granted, term } => self.on_vote_response(vote_granted, term),
+                        } {
+                            return Some(state)
                         }
-                        None => break
                     }
-                }
-                result = self.relay.receive() => {
-                    match result {
-                        Some((message, responder)) => match message {
-                            StoreRequest { payload: _ } => self.on_payload(responder).await,
-                            _ => unreachable!(),
-                        }
-                        None => break
+                    None => return None
+                },
+                result = self.relay.receive() => match result {
+                    Some((message, responder)) => match message {
+                        StoreRequest { payload: _ } => self.on_payload(responder).await,
+                        _ => unreachable!(),
                     }
+                    None => return None
                 }
             }
         }
-        None
     }
 
     async fn on_election_timeout(&mut self) {

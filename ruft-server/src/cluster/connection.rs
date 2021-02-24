@@ -80,15 +80,13 @@ impl Ingress {
             let (_shutdown_tx, shutdown_rx) = watch::channel(());
             loop {
                 tokio::select! {
-                    result = listener.next() => {
-                        match result {
-                            Ok(reader) => Self::on_connection(reader, tx.clone(), shutdown_rx.clone()),
-                            Err(e) => {
-                                trace!("Error accepting connection; error = {:?}", e);
-                                break;
-                            }
+                    result = listener.next() => match result {
+                        Ok(reader) => Self::on_connection(reader, tx.clone(), shutdown_rx.clone()),
+                        Err(e) => {
+                            trace!("Error accepting connection; error = {:?}", e);
+                            break
                         }
-                    }
+                    },
                     _ = signal::ctrl_c() => break // TODO: dedup with relay signal
                 }
             }
@@ -100,20 +98,18 @@ impl Ingress {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
-                    result = reader.read() => {
-                        match result {
-                            Some(Ok(message)) => messages.send(message.freeze()).expect("This is unexpected!"),
-                            Some(Err(e)) => {
-                                error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint());
-                                break;
-                            }
-                            None => {
-                                trace!("{} connection closed by peer.", &reader.endpoint());
-                                break;
-                            }
+                    result = reader.read() => match result {
+                        Some(Ok(message)) => messages.send(message.freeze()).expect("This is unexpected!"),
+                        Some(Err(e)) => {
+                            error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint());
+                            break
                         }
-                    }
-                    _ = shutdown.changed() => break,
+                        None => {
+                            trace!("{} connection closed by peer.", &reader.endpoint());
+                            break
+                        }
+                    },
+                    _ = shutdown.changed() => break
                 }
             }
         });
