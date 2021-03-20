@@ -10,4 +10,4 @@ ruft-client = { path = "../ruft-client" }
 
 bytes = "1.0.1"
 
-tokio = { version = "1.2.0", features = ["rt"] }
+tokio = { version = "1.4.0", features = ["rt"] }
