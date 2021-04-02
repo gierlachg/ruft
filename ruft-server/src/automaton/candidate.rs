@@ -46,6 +46,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         loop {
             tokio::select! {
                 _ = election_timer.tick() => {
+                    // TODO: it is possible that other branch gets executed first on 'first' tick
                     self.on_election_timeout().await
                 },
                 message = self.cluster.receive() => match message {
@@ -86,6 +87,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 
     fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
         if term >= self.term {
+            // TODO: strictly higher ?
             Some(State::FOLLOWER {
                 id: self.id,
                 term,

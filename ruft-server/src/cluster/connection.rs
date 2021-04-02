@@ -44,7 +44,7 @@ impl Egress {
         if let Some(writer) = holder.as_mut() {
             if let Err(_) = writer.write(message).await {
                 *holder = None;
-                Egress::reconnect(self.endpoint.clone(), self.writer.clone());
+                Self::reconnect(self.endpoint.clone(), self.writer.clone());
             }
         }
     }

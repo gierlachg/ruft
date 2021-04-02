@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::net::SocketAddr;
 
 use bytes::Bytes;
@@ -22,8 +24,8 @@ pub enum RuftClientError {
 }
 
 impl RuftClientError {
-    fn generic_failure(message: &str) -> Result<()> {
-        Err(RuftClientError::GenericFailure(message.into()))
+    fn generic_failure(message: &str) -> Self {
+        RuftClientError::GenericFailure(message.into())
     }
 }
 
@@ -36,6 +38,7 @@ impl RuftClient {
     pub async fn new(endpoints: Vec<SocketAddr>) -> Result<Self> {
         info!("Initializing Ruft client (version: {})", VERSION);
         let relay = Relay::init(endpoints).await?;
+        info!("Ruft client initialized");
 
         Ok(RuftClient { relay })
     }

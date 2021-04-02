@@ -1,14 +1,14 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{self, Duration};
 
 use crate::relay::protocol::Message;
 use crate::relay::protocol::Message::{StoreRedirectResponse, StoreSuccessResponse};
 use crate::relay::tcp::Stream;
-use crate::relay::State::{DISCONNECTED, DONE};
+use crate::relay::ConnectionState::{BROKEN, CLOSED};
 use crate::{Result, RuftClientError};
 
 pub(crate) mod protocol;
@@ -17,10 +17,6 @@ mod tcp;
 // TODO: configurable
 const CONNECTION_TIMEOUT_MILLIS: u64 = 5_000;
 const MAX_NUMBER_OF_IN_FLIGHT_MESSAGES: usize = 1024;
-
-const SENDING_RESPONSE_ERROR: &str = "Error occurred while sending response";
-
-type Responder = oneshot::Sender<Result<()>>;
 
 #[derive(Clone)]
 pub(super) struct Relay {
@@ -31,10 +27,11 @@ impl Relay {
     pub(super) async fn init(endpoints: Vec<SocketAddr>) -> Result<Self> {
         let stream = time::timeout(
             Duration::from_millis(CONNECTION_TIMEOUT_MILLIS),
-            Self::connect(endpoints.clone()),
+            Box::pin(Self::connect(&endpoints.clone())).next(),
         )
         .await
-        .map_err(|_| RuftClientError::GenericFailure("Unable to connect to the cluster".into()))?;
+        .unwrap_or(None)
+        .ok_or(RuftClientError::generic_failure("Unable to connect to the cluster"))?;
 
         let (tx, rx) = mpsc::channel(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES);
 
@@ -46,29 +43,23 @@ impl Relay {
     pub(super) async fn store(&mut self, message: Message) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.egress
-            .send((message, tx))
+            .send((message, Responder(tx)))
             .await
-            .map_err(|_| RuftClientError::GenericFailure("Slow down cowboy!".into()))?;
+            .map_err(|_| RuftClientError::generic_failure("Slow down cowboy!"))?;
         rx.await.expect("Error occurred while receiving response")
     }
 
     async fn run(mut requests: mpsc::Receiver<(Message, Responder)>, stream: Stream, endpoints: Vec<SocketAddr>) {
         let mut stream = stream;
-        let mut responders: VecDeque<Responder> = VecDeque::with_capacity(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES);
+        let mut responders = Responders(VecDeque::with_capacity(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES));
 
         loop {
             match Self::service(&mut requests, stream, &mut responders).await {
-                DISCONNECTED => responders.drain(..).for_each(|responder| {
-                    responder
-                        .send(RuftClientError::generic_failure(
-                            "Error occurred while communicating with the cluster",
-                        ))
-                        .expect(SENDING_RESPONSE_ERROR)
-                }),
-                DONE => break,
+                BROKEN => responders.fail_all(),
+                CLOSED => break,
             }
 
-            match Self::reconnect(&mut requests, endpoints.clone()).await {
+            match Self::reconnect(&mut requests, &endpoints).await {
                 Some(s) => stream = s,
                 None => break,
             }
@@ -78,37 +69,29 @@ impl Relay {
     async fn service(
         requests: &mut mpsc::Receiver<(Message, Responder)>,
         mut stream: Stream,
-        responders: &mut VecDeque<Responder>,
-    ) -> State {
+        responders: &mut Responders,
+    ) -> ConnectionState {
         let (mut writer, mut reader) = stream.split();
         loop {
             tokio::select! {
                 result = requests.recv() => match result {
                     Some((request, responder)) => {
-                        responders.push_front(responder);
+                        responders.push(responder);
                         if let Err(_) = writer.write(request.into()).await {
-                            return DISCONNECTED
+                            return BROKEN
                         }
                     }
-                    None => return DONE,
+                    None => return CLOSED,
                 },
                 result = reader.read() =>  match result.and_then(Result::ok).map(Message::from) {
                     Some(response) => {
-                        let responder = responders.pop_back().unwrap();
                         match response {
-                            StoreSuccessResponse {} => {
-                                responder.send(Ok(())).expect(SENDING_RESPONSE_ERROR);
-                            }
-                            StoreRedirectResponse {} => {
-                                // TODO: connect to the leader
-                                responder
-                                    .send(RuftClientError::generic_failure(""))
-                                    .expect(SENDING_RESPONSE_ERROR);
-                            }
+                            StoreSuccessResponse {} =>  responders.pop().respond_with_success(),
+                            StoreRedirectResponse {} =>  responders.pop().respond_with_error(""), // TODO: connect to the leader
                             _ => unreachable!(),
                         }
                     }
-                    None => return DISCONNECTED
+                    None => return BROKEN
                 }
             }
         }
@@ -116,39 +99,60 @@ impl Relay {
 
     async fn reconnect(
         requests: &mut mpsc::Receiver<(Message, Responder)>,
-        endpoints: Vec<SocketAddr>,
+        endpoints: &Vec<SocketAddr>,
     ) -> Option<Stream> {
-        let mut streams = Box::pin(Self::connect(endpoints).into_stream());
+        let mut streams = Box::pin(Self::connect(endpoints));
         loop {
             tokio::select! {
                 result = requests.recv() => {
                     match result {
-                        Some((_, responder)) => {
-                            responder.send(RuftClientError::generic_failure(
-                                "Unable to communicate with the cluster",
-                            )).expect("Error occurred while sending response");
-                        }
-                        None => break
+                        Some((_, responder)) => responder.respond_with_error("Unable to communicate with the cluster"),
+                        None => return None
                     }
                 }
                 stream = streams.next() => return stream
             }
         }
-        None
     }
 
-    async fn connect(endpoints: Vec<SocketAddr>) -> Stream {
-        Box::pin(
-            tokio_stream::iter(endpoints.iter().cycle())
-                .filter_map(|endpoint| async move { Stream::connect(&endpoint).await.ok() }),
-        )
-        .next()
-        .await
-        .expect("That really should not happen")
+    fn connect(endpoints: &Vec<SocketAddr>) -> impl tokio_stream::Stream<Item = Stream> + '_ {
+        tokio_stream::iter(endpoints.iter().cycle())
+            .filter_map(|endpoint| async move { Stream::connect(endpoint).await.ok() })
     }
 }
 
-enum State {
-    DISCONNECTED,
-    DONE,
+enum ConnectionState {
+    BROKEN,
+    CLOSED,
+}
+
+struct Responders(VecDeque<Responder>);
+
+impl Responders {
+    fn push(&mut self, responder: Responder) {
+        self.0.push_front(responder)
+    }
+    fn pop(&mut self) -> Responder {
+        self.0.pop_front().expect("No responder!")
+    }
+
+    fn fail_all(&mut self) {
+        self.0
+            .drain(..)
+            .for_each(|responder| responder.respond_with_error("Error occurred while communicating with the cluster"))
+    }
+}
+
+struct Responder(oneshot::Sender<Result<()>>);
+
+impl Responder {
+    fn respond_with_error(self, message: &str) {
+        self.0
+            .send(Err(RuftClientError::generic_failure(message)))
+            .expect("Error occurred while relaying response")
+    }
+
+    fn respond_with_success(self) {
+        self.0.send(Ok(())).expect("Error occurred while relaying response")
+    }
 }
