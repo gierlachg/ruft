@@ -279,7 +279,7 @@ mod tests {
         static ref ENTRY: Bytes = Bytes::from(vec![1]);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_time_comes_and_was_not_sent_recently_heartbeat_is_sent() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -303,7 +303,7 @@ mod tests {
         leader.on_tick().await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_time_comes_but_was_sent_recently_skip() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -318,7 +318,7 @@ mod tests {
         leader.on_tick().await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_time_comes_last_non_replicated_entry_is_sent() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -346,7 +346,7 @@ mod tests {
         leader.on_tick().await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_request_term_greater_then_switch_to_follower() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[should_panic]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_request_term_equal_then_panics() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -384,7 +384,7 @@ mod tests {
         leader.on_append_request(PEER_ID, TERM).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_request_term_less_then_respond() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(state, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_response_term_greater_then_switch_to_follower() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -434,7 +434,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_response_successful_and_position_latest_then_update() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(leader.trackers.get(&PEER_ID).unwrap().next_position(), &None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_response_successful_and_position_not_latest_then_replicate_and_update() {
         // given
         let preceding_position = Position::of(TERM - 1, 0);
@@ -491,7 +491,7 @@ mod tests {
         assert!(leader.trackers.get(&PEER_ID).unwrap().was_sent_recently());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_response_failed_then_replicate_and_update() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -526,7 +526,7 @@ mod tests {
         assert!(leader.trackers.get(&PEER_ID).unwrap().was_sent_recently());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_greater_then_switch_to_follower() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -549,7 +549,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_equal_then_ignore() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -565,7 +565,7 @@ mod tests {
         assert_eq!(state, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_less_then_respond() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();

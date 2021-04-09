@@ -144,7 +144,7 @@ mod tests {
 
     const TERM: u64 = 10;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_request_successful_insert_then_update_and_respond() {
         // given
         let position = Position::of(0, 0);
@@ -172,7 +172,7 @@ mod tests {
         assert_eq!(follower._leader_id, Some(PEER_ID));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_append_request_erroneous_insert_then_update_and_respond() {
         // given
         let position = Position::of(1, 0);
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(follower._leader_id, Some(PEER_ID));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_greater_and_log_is_up_to_date_then_update_and_respond() {
         // given
         let position = Position::of(1, 1);
@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(follower._leader_id, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_greater_but_log_is_not_up_to_date_then_ignore() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(follower._leader_id, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_less_then_respond() {
         // given
         let position = Position::of(1, 1);

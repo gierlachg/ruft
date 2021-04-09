@@ -219,7 +219,7 @@ mod tests {
         assert_eq!(state, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_greater_then_respond_and_switch_to_follower() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -245,7 +245,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_equal_then_ignore() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(state, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_less_then_ignore() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();

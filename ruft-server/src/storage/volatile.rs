@@ -109,7 +109,7 @@ impl Display for VolatileStorage {
 mod tests {
     use super::*;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_created_then_initialized() {
         let storage = VolatileStorage::init();
 
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(storage.next(&Position::of(0, 0)).await, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_empty_entries_appended_then_succeeds() {
         let mut storage = VolatileStorage::init();
 
@@ -133,7 +133,7 @@ mod tests {
         assert_eq!(storage.at(&Position::of(1, 0)).await, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_entries_appended_then_succeeds() {
         let mut storage = VolatileStorage::init();
 
@@ -173,7 +173,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_and_preceding_present_then_succeeds() {
         let mut storage = VolatileStorage::init();
 
@@ -222,7 +222,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_but_preceding_term_missing_then_fails() {
         let mut storage = VolatileStorage::init();
 
@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(storage.at(&Position::of(5, 1)).await, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_but_preceding_index_missing_then_fails() {
         let mut storage = VolatileStorage::init();
 
@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(storage.at(&Position::of(5, 6)).await, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_in_the_middle_then_subsequent_entries_are_removed() {
         let mut storage = VolatileStorage::init();
 
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(storage.at(&Position::of(10, 0)).await, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_next() {
         let mut storage = VolatileStorage::init();
 

@@ -132,6 +132,7 @@ impl Responders {
     fn push(&mut self, responder: Responder) {
         self.0.push_front(responder)
     }
+
     fn pop(&mut self) -> Responder {
         self.0.pop_front().expect("No responder!")
     }
