@@ -27,7 +27,7 @@ impl Relay {
     pub(super) async fn init(endpoints: Vec<SocketAddr>) -> Result<Self> {
         let stream = time::timeout(
             Duration::from_millis(CONNECTION_TIMEOUT_MILLIS),
-            Box::pin(Self::connect(&endpoints.clone())).next(),
+            Box::pin(Self::connect(&endpoints)).next(),
         )
         .await
         .unwrap_or(None)
