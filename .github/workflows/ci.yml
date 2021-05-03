@@ -1,4 +1,4 @@
-name: Build & Test
+name: Compile & Test
 
 on: [ push ]
 
@@ -8,7 +8,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@master
+      - name: Checkout code
+        uses: actions/checkout@v2
+
       - name: Install latest nightly
         uses: actions-rs/toolchain@v1
         with:
@@ -16,7 +18,7 @@ jobs:
           toolchain: nightly
           override: true
 
-      - name: cargo test
+      - name: Compile & Test
         uses: actions-rs/cargo@v1
         with:
           command: test
