@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
-use futures::future::join_all;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
@@ -96,38 +97,32 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     }
 
     async fn on_tick(&mut self) {
-        let futures = self
-            .trackers
-            .iter()
-            .filter(|(_, tracker)| !tracker.was_sent_recently())
-            .map(|(member_id, tracker)| self.replicate_or_heartbeat(member_id, tracker.next_position()))
-            .collect::<Vec<_>>();
-        join_all(futures).await;
+        {
+            let mut futures = self
+                .trackers
+                .iter()
+                .filter(|(_, tracker)| !tracker.was_sent_recently())
+                .map(|(member_id, tracker)| self.replicate_or_heartbeat(member_id, tracker.next_position()))
+                .collect::<FuturesUnordered<_>>();
+            while let Some(_) = futures.next().await {}
+        }
 
         self.trackers
             .iter_mut()
             .for_each(|(_, tracker)| tracker.clear_sent_recently());
     }
 
-    async fn replicate_or_heartbeat(&self, member_id: &Id, position: &Option<Position>) {
-        match position {
+    async fn replicate_or_heartbeat(&self, member_id: &Id, position: Option<&Position>) {
+        let message = match position {
             Some(position) => match self.storage.at(&position).await {
                 Some((preceding_position, entry)) => {
-                    let message = ServerMessage::append_request(
-                        self.id,
-                        *preceding_position,
-                        position.term(),
-                        vec![entry.clone()],
-                    );
-                    self.cluster.send(member_id, message).await;
+                    ServerMessage::append_request(self.id, *preceding_position, position.term(), vec![entry.clone()])
                 }
                 None => panic!("Missing entry at {:?}", &position),
             },
-            None => {
-                let message = ServerMessage::append_request(self.id, *self.storage.head(), self.term, vec![]);
-                self.cluster.send(member_id, message).await;
-            }
-        }
+            None => ServerMessage::append_request(self.id, *self.storage.head(), self.term, vec![]),
+        };
+        self.cluster.send(&member_id, message).await;
     }
 
     async fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
@@ -227,8 +222,8 @@ impl Tracker {
         }
     }
 
-    fn next_position(&self) -> &Option<Position> {
-        &self.next_position
+    fn next_position(&self) -> Option<&Position> {
+        self.next_position.as_ref()
     }
 
     fn clear_next_position(&mut self) {
@@ -450,7 +445,7 @@ mod tests {
 
         // then
         assert_eq!(state, None);
-        assert_eq!(leader.trackers.get(&PEER_ID).unwrap().next_position(), &None);
+        assert_eq!(leader.trackers.get(&PEER_ID).unwrap().next_position(), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -486,7 +481,7 @@ mod tests {
         assert_eq!(state, None);
         assert_eq!(
             leader.trackers.get(&PEER_ID).unwrap().next_position(),
-            &Some(POSITION.clone())
+            Some(&POSITION.clone())
         );
         assert!(leader.trackers.get(&PEER_ID).unwrap().was_sent_recently());
     }
@@ -521,7 +516,7 @@ mod tests {
         assert_eq!(state, None);
         assert_eq!(
             leader.trackers.get(&PEER_ID).unwrap().next_position(),
-            &Some(POSITION.clone())
+            Some(&POSITION.clone())
         );
         assert!(leader.trackers.get(&PEER_ID).unwrap().was_sent_recently());
     }
