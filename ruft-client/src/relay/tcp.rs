@@ -11,14 +11,14 @@ use crate::Result;
 const LENGTH_FIELD_OFFSET: usize = 0;
 const LENGTH_FIELD_LENGTH: usize = 4;
 
-pub(super) struct Stream {
+pub(super) struct Connection {
     stream: TcpStream,
 }
 
-impl Stream {
+impl Connection {
     pub(super) async fn connect(endpoint: &SocketAddr) -> Result<Self> {
         let stream = TcpStream::connect(endpoint).await?;
-        Ok(Stream { stream })
+        Ok(Connection { stream })
     }
 
     pub(crate) fn split(&mut self) -> (Writer, Reader) {

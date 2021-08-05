@@ -14,8 +14,10 @@ use ruft_client::RuftClient;
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logger();
 
-    let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse().unwrap()]).await.unwrap();
-    match client.store(Bytes::from_static(&[1])).await {
+    let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse().unwrap()], 5_000)
+        .await
+        .unwrap();
+    match client.send(Bytes::from_static(&[1])).await {
         Ok(_) => {
             info!("Successfully stored");
         }
