@@ -73,7 +73,6 @@ impl Cluster for PhysicalCluster {
 
     async fn broadcast(&self, message: ServerMessage) {
         let message: Bytes = message.into();
-
         let futures = self
             .egresses
             .values()
@@ -83,7 +82,7 @@ impl Cluster for PhysicalCluster {
     }
 
     async fn messages(&mut self) -> Option<ServerMessage> {
-        self.ingress.next().await.map(ServerMessage::from)
+        self.ingress.next().await
     }
 }
 

@@ -18,7 +18,7 @@ const MAX_NUMBER_OF_IN_FLIGHT_MESSAGES: usize = 1024;
 
 #[derive(Clone)]
 pub(super) struct Relay {
-    egress: mpsc::Sender<(Request, Responder)>,
+    requests: mpsc::Sender<(Request, Responder)>,
 }
 
 impl Relay {
@@ -33,7 +33,7 @@ impl Relay {
 
         let (tx, rx) = mpsc::channel(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES);
         tokio::spawn(async move { Self::run(rx, connection, endpoints).await });
-        Ok(Relay { egress: tx })
+        Ok(Relay { requests: tx })
     }
 
     async fn run(
@@ -107,7 +107,7 @@ impl Relay {
 
     pub(super) async fn send(&mut self, request: Request) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.egress
+        self.requests
             .send((request, Responder(tx)))
             .await
             .map_err(|_| RuftClientError::generic_failure("Slow down cowboy!"))?;

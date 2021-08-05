@@ -21,7 +21,6 @@ impl Writer {
             .length_field_length(LENGTH_FIELD_LENGTH)
             .little_endian()
             .new_write(stream);
-
         Ok(Writer { writer })
     }
 

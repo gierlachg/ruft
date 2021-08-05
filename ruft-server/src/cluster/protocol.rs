@@ -139,6 +139,7 @@ impl Into<Bytes> for ServerMessage {
     }
 }
 
+// TODO: TryFrom
 impl From<Bytes> for ServerMessage {
     fn from(mut bytes: Bytes) -> Self {
         let r#type = bytes.get_u16_le();

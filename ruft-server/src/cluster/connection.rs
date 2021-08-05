@@ -9,6 +9,7 @@ use tokio::sync::{mpsc, watch, Mutex};
 use tokio::time;
 use tokio::time::Duration;
 
+use crate::cluster::protocol::ServerMessage;
 use crate::cluster::tcp::{Listener, Reader, Writer};
 use crate::{Endpoint, Id};
 
@@ -68,38 +69,47 @@ impl Egress {
 #[display(fmt = "{:?} this", endpoint)]
 pub(super) struct Ingress {
     endpoint: Endpoint,
-    messages: mpsc::UnboundedReceiver<Bytes>,
+    messages: mpsc::UnboundedReceiver<ServerMessage>,
 }
 
 impl Ingress {
     pub(super) async fn bind(endpoint: Endpoint) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let mut listener = Listener::bind(endpoint.address()).await?;
+        let listener = Listener::bind(endpoint.address()).await?;
 
         let (tx, rx) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let (_shutdown_tx, shutdown_rx) = watch::channel(());
-            loop {
-                tokio::select! {
-                    result = listener.next() => match result {
-                        Ok(reader) => Self::on_connection(reader, tx.clone(), shutdown_rx.clone()),
-                        Err(e) => {
-                            trace!("Error accepting connection; error = {:?}", e);
-                            break
-                        }
-                    },
-                    _ = signal::ctrl_c() => break // TODO: dedup with relay signal
-                }
-            }
-        });
+        tokio::spawn(Self::listen(listener, tx));
         Ok(Ingress { endpoint, messages: rx })
     }
 
-    fn on_connection(mut reader: Reader, messages: mpsc::UnboundedSender<Bytes>, mut shutdown: watch::Receiver<()>) {
+    async fn listen(mut listener: Listener, messages: mpsc::UnboundedSender<ServerMessage>) {
+        let (_shutdown_tx, shutdown_rx) = watch::channel(());
+        loop {
+            tokio::select! {
+                result = listener.next() => match result {
+                    Ok(reader) => Self::on_connection(reader, messages.clone(), shutdown_rx.clone()),
+                    Err(e) => {
+                        trace!("Error accepting connection; error = {:?}", e);
+                        break
+                    }
+                },
+                _ = signal::ctrl_c() => break // TODO: dedup with relay signal
+            }
+        }
+    }
+
+    fn on_connection(
+        mut reader: Reader,
+        messages: mpsc::UnboundedSender<ServerMessage>,
+        mut shutdown: watch::Receiver<()>,
+    ) {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     result = reader.read() => match result {
-                        Some(Ok(message)) => messages.send(message.freeze()).expect("This is unexpected!"),
+                        Some(Ok(message)) => {
+                            let message = ServerMessage::from(message.freeze());
+                            messages.send(message).expect("This is unexpected!");
+                        }
                         Some(Err(e)) => {
                             error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint());
                             break
@@ -115,7 +125,7 @@ impl Ingress {
         });
     }
 
-    pub(super) async fn next(&mut self) -> Option<Bytes> {
+    pub(super) async fn next(&mut self) -> Option<ServerMessage> {
         self.messages.recv().await
     }
 }
