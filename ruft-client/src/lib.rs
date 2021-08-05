@@ -6,7 +6,7 @@ use bytes::Bytes;
 use log::info;
 use thiserror::Error;
 
-use crate::relay::protocol::Message;
+use crate::relay::protocol::Request;
 use crate::relay::Relay;
 
 mod relay;
@@ -44,7 +44,7 @@ impl RuftClient {
     }
 
     pub async fn store(&mut self, payload: Bytes) -> Result<()> {
-        let message = Message::store_request(payload);
+        let message = Request::store_request(payload);
         self.relay.store(message).await
     }
 }

@@ -9,7 +9,8 @@ use tokio::time::{self, Duration};
 use crate::automaton::State;
 use crate::cluster::protocol::ServerMessage::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::ClientMessage::{self, StoreRequest};
+use crate::relay::protocol::Request::StoreRequest;
+use crate::relay::protocol::Response;
 use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
 use crate::Id;
@@ -87,8 +88,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 },
                 result = self.relay.receive() => match result {
                     Some((message, responder)) => match message {
-                        StoreRequest { payload } => self.on_payload(payload, responder).await,
-                        _ => unreachable!(),
+                        StoreRequest { payload } => self.on_payload(payload, responder).await
                     }
                     None => return None
                 }
@@ -201,10 +201,10 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
     }
 
-    async fn on_payload(&mut self, payload: Bytes, responder: mpsc::UnboundedSender<ClientMessage>) {
+    async fn on_payload(&mut self, payload: Bytes, responder: mpsc::UnboundedSender<Response>) {
         self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
         responder
-            .send(ClientMessage::store_success_response())
+            .send(Response::store_success_response())
             .expect("This is unexpected!");
     }
 }
@@ -257,7 +257,7 @@ mod tests {
     use tokio::time::Duration;
 
     use crate::cluster::protocol::ServerMessage;
-    use crate::relay::protocol::ClientMessage;
+    use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
     use crate::Id;
 
@@ -620,7 +620,7 @@ mod tests {
         Relay {}
         #[async_trait]
         trait Relay {
-            async fn receive(&mut self) -> Option<(ClientMessage, mpsc::UnboundedSender<ClientMessage>)>;
+            async fn receive(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)>;
         }
     }
 }

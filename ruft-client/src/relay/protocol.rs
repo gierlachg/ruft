@@ -3,31 +3,26 @@ use std::convert::TryInto;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use derive_more::Display;
 
-use crate::relay::protocol::Message::{StoreRedirectResponse, StoreRequest, StoreSuccessResponse};
+use crate::relay::protocol::Request::StoreRequest;
+use crate::relay::protocol::Response::{StoreRedirectResponse, StoreSuccessResponse};
 
 const STORE_REQUEST_MESSAGE_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_MESSAGE_ID: u16 = 2;
 const STORE_REDIRECT_RESPONSE_MESSAGE_ID: u16 = 3;
 
 #[derive(PartialEq, Display, Debug)]
-pub(crate) enum Message {
+pub(crate) enum Request {
     #[display(fmt = "StoreRequest {{ }}")]
     StoreRequest { payload: Bytes },
-
-    #[display(fmt = "StoreSuccessResponse {{ }}")]
-    StoreSuccessResponse {},
-
-    #[display(fmt = "StoreRedirectResponse {{ }}")]
-    StoreRedirectResponse {}, // TODO: pass the leader ip/id
 }
 
-impl Message {
+impl Request {
     pub(crate) fn store_request(payload: Bytes) -> Self {
         StoreRequest { payload }
     }
 }
 
-impl Into<Bytes> for Message {
+impl Into<Bytes> for Request {
     fn into(self) -> Bytes {
         let mut bytes = BytesMut::new();
         match self {
@@ -36,13 +31,21 @@ impl Into<Bytes> for Message {
                 bytes.put_u32_le(payload.len().try_into().expect("Unable to convert"));
                 bytes.put(payload.as_ref());
             }
-            _ => unreachable!(),
         }
         bytes.freeze()
     }
 }
 
-impl From<Bytes> for Message {
+#[derive(PartialEq, Display, Debug)]
+pub(crate) enum Response {
+    #[display(fmt = "StoreSuccessResponse {{ }}")]
+    StoreSuccessResponse {},
+
+    #[display(fmt = "StoreRedirectResponse {{ }}")]
+    StoreRedirectResponse {}, // TODO: pass the leader ip/id
+}
+
+impl From<Bytes> for Response {
     fn from(mut bytes: Bytes) -> Self {
         let r#type = bytes.get_u16_le();
         match r#type {

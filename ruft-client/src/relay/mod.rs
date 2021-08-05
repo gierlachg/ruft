@@ -5,8 +5,8 @@ use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{self, Duration};
 
-use crate::relay::protocol::Message;
-use crate::relay::protocol::Message::{StoreRedirectResponse, StoreSuccessResponse};
+use crate::relay::protocol::Response::{StoreRedirectResponse, StoreSuccessResponse};
+use crate::relay::protocol::{Request, Response};
 use crate::relay::tcp::Stream;
 use crate::relay::ConnectionState::{BROKEN, CLOSED};
 use crate::{Result, RuftClientError};
@@ -20,7 +20,7 @@ const MAX_NUMBER_OF_IN_FLIGHT_MESSAGES: usize = 1024;
 
 #[derive(Clone)]
 pub(super) struct Relay {
-    egress: mpsc::Sender<(Message, Responder)>,
+    egress: mpsc::Sender<(Request, Responder)>,
 }
 
 impl Relay {
@@ -40,7 +40,7 @@ impl Relay {
         Ok(Relay { egress: tx })
     }
 
-    pub(super) async fn store(&mut self, message: Message) -> Result<()> {
+    pub(super) async fn store(&mut self, message: Request) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.egress
             .send((message, Responder(tx)))
@@ -49,7 +49,7 @@ impl Relay {
         rx.await.expect("Error occurred while receiving response")
     }
 
-    async fn run(mut requests: mpsc::Receiver<(Message, Responder)>, stream: Stream, endpoints: Vec<SocketAddr>) {
+    async fn run(mut requests: mpsc::Receiver<(Request, Responder)>, stream: Stream, endpoints: Vec<SocketAddr>) {
         let mut stream = stream;
         let mut responders = Responders(VecDeque::with_capacity(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES));
 
@@ -67,7 +67,7 @@ impl Relay {
     }
 
     async fn service(
-        requests: &mut mpsc::Receiver<(Message, Responder)>,
+        requests: &mut mpsc::Receiver<(Request, Responder)>,
         mut stream: Stream,
         responders: &mut Responders,
     ) -> ConnectionState {
@@ -83,12 +83,11 @@ impl Relay {
                     }
                     None => return CLOSED,
                 },
-                result = reader.read() =>  match result.and_then(Result::ok).map(Message::from) {
+                result = reader.read() =>  match result.and_then(Result::ok).map(Response::from) {
                     Some(response) => {
                         match response {
                             StoreSuccessResponse {} =>  responders.pop().respond_with_success(),
                             StoreRedirectResponse {} =>  responders.pop().respond_with_error(""), // TODO: connect to the leader
-                            _ => unreachable!(),
                         }
                     }
                     None => return BROKEN
@@ -98,7 +97,7 @@ impl Relay {
     }
 
     async fn reconnect(
-        requests: &mut mpsc::Receiver<(Message, Responder)>,
+        requests: &mut mpsc::Receiver<(Request, Responder)>,
         endpoints: &Vec<SocketAddr>,
     ) -> Option<Stream> {
         let mut streams = Box::pin(Self::connect(endpoints));

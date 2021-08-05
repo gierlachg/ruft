@@ -4,7 +4,8 @@ use tokio::time::{self, Duration};
 use crate::automaton::State;
 use crate::cluster::protocol::ServerMessage::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::ClientMessage::{self, StoreRequest};
+use crate::relay::protocol::Request::StoreRequest;
+use crate::relay::protocol::Response;
 use crate::relay::Relay;
 use crate::storage::Storage;
 use crate::Id;
@@ -68,8 +69,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                 },
                 result = self.relay.receive() => match result {
                     Some((message, responder)) => match message {
-                        StoreRequest { payload: _ } => self.on_payload(responder).await,
-                        _ => unreachable!(),
+                        StoreRequest { payload: _ } => self.on_payload(responder).await
                     }
                     None => return None
                 }
@@ -136,9 +136,9 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         }
     }
 
-    async fn on_payload(&mut self, responder: mpsc::UnboundedSender<ClientMessage>) {
+    async fn on_payload(&mut self, responder: mpsc::UnboundedSender<Response>) {
         responder
-            .send(ClientMessage::store_redirect_response())
+            .send(Response::store_redirect_response())
             .expect("This is unexpected!");
     }
 }
@@ -152,7 +152,7 @@ mod tests {
     use tokio::time::Duration;
 
     use crate::cluster::protocol::ServerMessage;
-    use crate::relay::protocol::ClientMessage;
+    use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
     use crate::Id;
 
@@ -395,7 +395,7 @@ mod tests {
         Relay {}
         #[async_trait]
         trait Relay {
-            async fn receive(&mut self) -> Option<(ClientMessage, mpsc::UnboundedSender<ClientMessage>)>;
+            async fn receive(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)>;
         }
     }
 }
