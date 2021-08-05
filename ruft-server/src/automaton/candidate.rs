@@ -88,11 +88,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
         if term >= self.term {
             // TODO: strictly higher ?
-            Some(State::FOLLOWER {
-                id: self.id,
-                term,
-                leader_id: Some(leader_id),
-            })
+            Some(State::follower(self.id, term, Some(leader_id)))
         } else {
             None
         }
@@ -104,11 +100,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                 .send(&candidate_id, ServerMessage::vote_response(true, term))
                 .await;
 
-            Some(State::FOLLOWER {
-                id: self.id,
-                term,
-                leader_id: None,
-            })
+            Some(State::follower(self.id, term, None)) // TODO: figure out leader id
         } else {
             None
         }
@@ -116,18 +108,11 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 
     fn on_vote_response(&mut self, vote_granted: bool, term: u64) -> Option<State> {
         if term > self.term {
-            Some(State::FOLLOWER {
-                id: self.id,
-                term,
-                leader_id: None,
-            })
+            Some(State::follower(self.id, term, None)) // TODO: figure out leader id
         } else if term == self.term && vote_granted {
             self.granted_votes += 1;
             if self.granted_votes > self.cluster.size() / 2 {
-                Some(State::LEADER {
-                    id: self.id,
-                    term: self.term,
-                })
+                Some(State::leader(self.id, self.term))
             } else {
                 None
             }

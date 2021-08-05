@@ -94,6 +94,16 @@ impl Automaton {
 #[derive(Eq, PartialEq, Debug)]
 enum State {
     LEADER { id: Id, term: u64 },
-    FOLLOWER { id: Id, term: u64, leader_id: Option<Id> },
     CANDIDATE { id: Id, term: u64 },
+    FOLLOWER { id: Id, term: u64, leader_id: Option<Id> },
+}
+
+impl State {
+    fn leader(id: Id, term: u64) -> Self {
+        LEADER { id, term }
+    }
+
+    fn follower(id: Id, term: u64, leader_id: Option<Id>) -> Self {
+        FOLLOWER { id, term, leader_id }
+    }
 }

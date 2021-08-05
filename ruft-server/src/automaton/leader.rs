@@ -124,11 +124,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
     async fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
         if term > self.term {
-            Some(State::FOLLOWER {
-                id: self.id,
-                term,
-                leader_id: Some(leader_id),
-            })
+            Some(State::follower(self.id, term, Some(leader_id)))
         } else if term == self.term {
             panic!("Double leader detected - term: {}, leader id: {}", term, leader_id);
         } else {
@@ -144,11 +140,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
     async fn on_append_response(&mut self, member_id: Id, success: bool, position: Position) -> Option<State> {
         if position.term() > self.term {
-            Some(State::FOLLOWER {
-                id: self.id,
-                term: position.term(),
-                leader_id: None,
-            })
+            Some(State::follower(self.id, position.term(), None)) // TODO: figure out leader id
         } else if success && position == *self.storage.head() {
             match self.trackers.get_mut(&member_id) {
                 Some(tracker) => tracker.clear_next_position(),
@@ -183,11 +175,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
     async fn on_vote_request(&mut self, candidate_id: Id, term: u64) -> Option<State> {
         if term > self.term {
-            Some(State::FOLLOWER {
-                id: self.id,
-                term,
-                leader_id: None,
-            })
+            Some(State::follower(self.id, term, None)) // TODO: figure out leader id
         } else if term < self.term {
             self.cluster
                 .send(&candidate_id, ServerMessage::vote_response(false, self.term))
