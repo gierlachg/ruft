@@ -50,7 +50,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                     // TODO: it is possible that other branch gets executed first on 'first' tick
                     self.on_election_timeout().await
                 },
-                message = self.cluster.receive() => match message {
+                message = self.cluster.messages() => match message {
                     Some(message) => {
                         if let Some(state) = match message {
                             AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
@@ -68,8 +68,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                     None => return None
                 },
                 result = self.relay.requests() => match result {
-                    Some((message, responder)) => match message {
-                        StoreRequest { payload: _ } => self.on_payload(responder).await
+                    Some((request, responder)) => match request {
+                        StoreRequest { payload: _ } => self.on_client_request(responder).await
                     }
                     None => return None
                 }
@@ -136,7 +136,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         }
     }
 
-    async fn on_payload(&mut self, responder: mpsc::UnboundedSender<Response>) {
+    async fn on_client_request(&mut self, responder: mpsc::UnboundedSender<Response>) {
         responder
             .send(Response::store_redirect_response())
             .expect("This is unexpected!");
@@ -387,7 +387,7 @@ mod tests {
             fn size(&self) -> usize;
             async fn send(&self, member_id: &Id, message: ServerMessage);
             async fn broadcast(&self, message: ServerMessage);
-            async fn receive(&mut self) -> Option<ServerMessage>;
+            async fn messages(&mut self) -> Option<ServerMessage>;
         }
     }
 

@@ -25,7 +25,7 @@ pub(crate) trait Cluster {
 
     async fn broadcast(&self, message: ServerMessage);
 
-    async fn receive(&mut self) -> Option<ServerMessage>;
+    async fn messages(&mut self) -> Option<ServerMessage>;
 }
 
 pub(crate) struct PhysicalCluster {
@@ -82,7 +82,7 @@ impl Cluster for PhysicalCluster {
         join_all(futures).await;
     }
 
-    async fn receive(&mut self) -> Option<ServerMessage> {
+    async fn messages(&mut self) -> Option<ServerMessage> {
         self.ingress.next().await.map(ServerMessage::from)
     }
 }

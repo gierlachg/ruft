@@ -4,7 +4,6 @@ use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use log::{error, trace};
 use tokio::signal;
 use tokio::sync::{mpsc, watch};
@@ -22,7 +21,7 @@ pub(crate) trait Relay {
 
 pub(crate) struct PhysicalRelay {
     endpoint: SocketAddr,
-    requests: mpsc::UnboundedReceiver<(Bytes, mpsc::UnboundedSender<Response>)>,
+    requests: mpsc::UnboundedReceiver<(Request, mpsc::UnboundedSender<Response>)>,
 }
 
 impl PhysicalRelay {
@@ -37,7 +36,10 @@ impl PhysicalRelay {
         Ok(PhysicalRelay { endpoint, requests: rx })
     }
 
-    async fn listen(mut connections: Connections, tx: mpsc::UnboundedSender<(Bytes, mpsc::UnboundedSender<Response>)>) {
+    async fn listen(
+        mut connections: Connections,
+        tx: mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>,
+    ) {
         let (_shutdown_tx, shutdown_rx) = watch::channel(());
         loop {
             tokio::select! {
@@ -55,7 +57,7 @@ impl PhysicalRelay {
 
     fn on_connection(
         mut connection: Connection,
-        requests: mpsc::UnboundedSender<(Bytes, mpsc::UnboundedSender<Response>)>,
+        requests: mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>,
         mut shutdown: watch::Receiver<()>,
     ) {
         tokio::spawn(async move {
@@ -63,7 +65,10 @@ impl PhysicalRelay {
             loop {
                 tokio::select! {
                     result = connection.read() => match result {
-                        Some(Ok(request)) => requests.send((request.freeze(), tx.clone())).expect("This is unexpected!"),
+                        Some(Ok(request)) => {
+                            let request = Request::from(request.freeze());
+                            requests.send((request, tx.clone())).expect("This is unexpected!");
+                        }
                         Some(Err(e)) => {
                             error!("Communication error; error = {:?}. Closing {} connection.", e, &connection.endpoint());
                             break
@@ -89,10 +94,7 @@ impl PhysicalRelay {
 #[async_trait]
 impl Relay for PhysicalRelay {
     async fn requests(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)> {
-        self.requests
-            .recv()
-            .await
-            .map(|(bytes, responder)| (Request::from(bytes), responder))
+        self.requests.recv().await
     }
 }
 

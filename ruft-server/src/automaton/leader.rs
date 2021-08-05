@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bytes::Bytes;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use tokio::sync::mpsc;
@@ -10,7 +9,7 @@ use crate::automaton::State;
 use crate::cluster::protocol::ServerMessage::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::StoreRequest;
-use crate::relay::protocol::Response;
+use crate::relay::protocol::{Request, Response};
 use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
 use crate::Id;
@@ -67,7 +66,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 _ = ticker.tick() => {
                     self.on_tick().await
                 },
-                result = self.cluster.receive() => match result {
+                result = self.cluster.messages() => match result {
                     Some(message) => {
                         if let Some(state) = match message {
                             AppendRequest { leader_id, preceding_position: _,  term, entries: _ } => {
@@ -87,9 +86,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                     None => return None
                 },
                 result = self.relay.requests() => match result {
-                    Some((message, responder)) => match message {
-                        StoreRequest { payload } => self.on_payload(payload, responder).await
-                    }
+                    Some((request, responder)) => self.on_client_request(request, responder).await,
                     None => return None
                 }
             }
@@ -201,11 +198,15 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
     }
 
-    async fn on_payload(&mut self, payload: Bytes, responder: mpsc::UnboundedSender<Response>) {
-        self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
-        responder
-            .send(Response::store_success_response())
-            .expect("This is unexpected!");
+    async fn on_client_request(&mut self, request: Request, responder: mpsc::UnboundedSender<Response>) {
+        match request {
+            StoreRequest { payload } => {
+                self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
+                responder
+                    .send(Response::store_success_response())
+                    .expect("This is unexpected!");
+            }
+        }
     }
 }
 
@@ -612,7 +613,7 @@ mod tests {
             fn size(&self) -> usize;
             async fn send(&self, member_id: &Id, message: ServerMessage);
             async fn broadcast(&self, message: ServerMessage);
-            async fn receive(&mut self) -> Option<ServerMessage>;
+            async fn messages(&mut self) -> Option<ServerMessage>;
         }
     }
 

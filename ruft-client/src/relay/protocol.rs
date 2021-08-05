@@ -45,6 +45,7 @@ pub(crate) enum Response {
     StoreRedirectResponse {}, // TODO: pass the leader ip/id
 }
 
+// TODO: TryFrom
 impl From<Bytes> for Response {
     fn from(mut bytes: Bytes) -> Self {
         let r#type = bytes.get_u16_le();

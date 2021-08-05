@@ -16,6 +16,7 @@ pub(crate) enum Request {
     StoreRequest { payload: Bytes },
 }
 
+// TODO: TryFrom
 impl From<Bytes> for Request {
     fn from(mut bytes: Bytes) -> Self {
         let r#type = bytes.get_u16_le();
