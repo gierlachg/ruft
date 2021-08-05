@@ -67,7 +67,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                     }
                     None => return None
                 },
-                result = self.relay.receive() => match result {
+                result = self.relay.requests() => match result {
                     Some((message, responder)) => match message {
                         StoreRequest { payload: _ } => self.on_payload(responder).await
                     }
@@ -395,7 +395,7 @@ mod tests {
         Relay {}
         #[async_trait]
         trait Relay {
-            async fn receive(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)>;
+            async fn requests(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)>;
         }
     }
 }

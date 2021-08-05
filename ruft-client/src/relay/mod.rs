@@ -32,19 +32,8 @@ impl Relay {
         .ok_or(RuftClientError::generic_failure("Unable to connect to the cluster"))?;
 
         let (tx, rx) = mpsc::channel(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES);
-
         tokio::spawn(async move { Self::run(rx, connection, endpoints).await });
-
         Ok(Relay { egress: tx })
-    }
-
-    pub(super) async fn send(&mut self, request: Request) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.egress
-            .send((request, Responder(tx)))
-            .await
-            .map_err(|_| RuftClientError::generic_failure("Slow down cowboy!"))?;
-        rx.await.expect("Error occurred while receiving response")
     }
 
     async fn run(
@@ -73,19 +62,18 @@ impl Relay {
         mut connection: Connection,
         responders: &mut Responders,
     ) -> ConnectionState {
-        let (mut writer, mut reader) = connection.split();
         loop {
             tokio::select! {
                 result = requests.recv() => match result {
                     Some((request, responder)) => {
                         responders.push(responder);
-                        if let Err(_) = writer.write(request.into()).await {
+                        if let Err(_) = connection.write(request.into()).await {
                             return BROKEN
                         }
                     }
                     None => return CLOSED,
                 },
-                result = reader.read() =>  match result.and_then(Result::ok).map(Response::from) {
+                result = connection.read() =>  match result.and_then(Result::ok).map(Response::from) {
                     Some(response) => match response {
                         StoreSuccessResponse {} =>  responders.pop().respond_with_success(),
                         StoreRedirectResponse {} =>  responders.pop().respond_with_error(""), // TODO: connect to the leader
@@ -115,6 +103,15 @@ impl Relay {
     fn connect(endpoints: &Vec<SocketAddr>) -> impl tokio_stream::Stream<Item = Connection> + '_ {
         tokio_stream::iter(endpoints.iter().cycle())
             .filter_map(|endpoint| async move { Connection::connect(endpoint).await.ok() })
+    }
+
+    pub(super) async fn send(&mut self, request: Request) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.egress
+            .send((request, Responder(tx)))
+            .await
+            .map_err(|_| RuftClientError::generic_failure("Slow down cowboy!"))?;
+        rx.await.expect("Error occurred while receiving response")
     }
 }
 

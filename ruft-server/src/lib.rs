@@ -47,16 +47,16 @@ impl Endpoint {
     }
 }
 
-// TODO: better id assignment...
+// TODO: better id assignment... ?
 fn to_endpoints(local_endpoint: SocketAddr, remote_endpoints: Vec<SocketAddr>) -> (Endpoint, Vec<Endpoint>) {
     let mut endpoints = BTreeSet::new();
     endpoints.insert(local_endpoint);
     endpoints.extend(remote_endpoints.into_iter());
 
     assert!(
-        endpoints.len() < usize::from(u8::MAX),
+        endpoints.len() <= usize::from(Id::MAX),
         "Number of members exceeds maximum supported ({})",
-        u8::MAX
+        Id::MAX
     );
 
     let mut endpoints = endpoints
