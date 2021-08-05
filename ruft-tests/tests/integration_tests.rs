@@ -25,7 +25,7 @@ async fn test_successful_store() {
     let mut client = RuftClient::new(vec![client_endpoint], 5_000).await.unwrap();
 
     // store some payload
-    let result = client.send(Bytes::from_static(&[1])).await;
+    let result = client.store(Bytes::from_static(&[1])).await;
 
     assert!(result.is_ok());
 }

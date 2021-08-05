@@ -29,7 +29,7 @@ impl RuftClient {
         Ok(RuftClient { relay })
     }
 
-    pub async fn send(&mut self, payload: Bytes) -> Result<()> {
+    pub async fn store(&mut self, payload: Bytes) -> Result<()> {
         let request = Request::store_request(payload);
         self.relay.send(request).await
     }
