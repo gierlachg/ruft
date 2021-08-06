@@ -9,7 +9,7 @@ use tokio::sync::{mpsc, watch, Mutex};
 use tokio::time;
 use tokio::time::Duration;
 
-use crate::cluster::protocol::ServerMessage;
+use crate::cluster::protocol::Message;
 use crate::cluster::tcp::{Listener, Reader, Writer};
 use crate::{Endpoint, Id};
 
@@ -69,7 +69,7 @@ impl Egress {
 #[display(fmt = "{:?} this", endpoint)]
 pub(super) struct Ingress {
     endpoint: Endpoint,
-    messages: mpsc::UnboundedReceiver<ServerMessage>,
+    messages: mpsc::UnboundedReceiver<Message>,
 }
 
 impl Ingress {
@@ -81,7 +81,7 @@ impl Ingress {
         Ok(Ingress { endpoint, messages: rx })
     }
 
-    async fn listen(mut listener: Listener, messages: mpsc::UnboundedSender<ServerMessage>) {
+    async fn listen(mut listener: Listener, messages: mpsc::UnboundedSender<Message>) {
         let (_shutdown_tx, shutdown_rx) = watch::channel(());
         loop {
             tokio::select! {
@@ -97,17 +97,13 @@ impl Ingress {
         }
     }
 
-    fn on_connection(
-        mut reader: Reader,
-        messages: mpsc::UnboundedSender<ServerMessage>,
-        mut shutdown: watch::Receiver<()>,
-    ) {
+    fn on_connection(mut reader: Reader, messages: mpsc::UnboundedSender<Message>, mut shutdown: watch::Receiver<()>) {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     result = reader.read() => match result {
                         Some(Ok(message)) => {
-                            let message = ServerMessage::from(message.freeze());
+                            let message = Message::from(message.freeze());
                             messages.send(message).expect("This is unexpected!");
                         }
                         Some(Err(e)) => {
@@ -125,7 +121,7 @@ impl Ingress {
         });
     }
 
-    pub(super) async fn next(&mut self) -> Option<ServerMessage> {
+    pub(super) async fn next(&mut self) -> Option<Message> {
         self.messages.recv().await
     }
 }

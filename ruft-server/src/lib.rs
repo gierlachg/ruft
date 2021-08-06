@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![feature(stmt_expr_attributes)]
 
 use std::collections::BTreeSet;
 use std::convert::TryFrom;

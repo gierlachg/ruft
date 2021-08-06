@@ -2,10 +2,10 @@ use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::cluster::protocol::ServerMessage::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::StoreRequest;
-use crate::relay::protocol::Response;
+use crate::relay::protocol::{Request, Response};
 use crate::relay::Relay;
 use crate::storage::Storage;
 use crate::Id;
@@ -52,28 +52,33 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => {
-                        if let Some(state) = match message {
-                            AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
-                                self.on_append_request(leader_id, term)
-                            }
-                            AppendResponse { member_id: _, success: _, position: _ } => None,
-                            VoteRequest { candidate_id, term, position: _ } => {
-                                self.on_vote_request(candidate_id, term).await
-                            }
-                            VoteResponse { vote_granted, term } => self.on_vote_response(vote_granted, term),
-                        } {
+                        if let Some(state) = self.on_message(message).await {
                             return Some(state)
                         }
                     }
                     None => return None
                 },
                 result = self.relay.requests() => match result {
-                    Some((request, responder)) => match request {
-                        StoreRequest { payload: _ } => self.on_client_request(responder).await
-                    }
+                    Some((request, responder)) => self.on_client_request(request, responder),
                     None => return None
                 }
             }
+        }
+    }
+
+    async fn on_message(&mut self, message: Message) -> Option<State> {
+        #[rustfmt::skip]
+        match message {
+            AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
+                self.on_append_request(leader_id, term)
+            },
+            AppendResponse { member_id: _, success: _, position: _ } => None,
+            VoteRequest { candidate_id, term, position: _ } => {
+                self.on_vote_request(candidate_id, term).await
+            },
+            VoteResponse { vote_granted, term } => {
+                self.on_vote_response(vote_granted, term)
+            },
         }
     }
 
@@ -81,7 +86,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         self.term += 1;
         self.granted_votes = 1;
         self.cluster
-            .broadcast(ServerMessage::vote_request(self.id, self.term, *self.storage.head()))
+            .broadcast(Message::vote_request(self.id, self.term, *self.storage.head()))
             .await;
     }
 
@@ -97,7 +102,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     async fn on_vote_request(&mut self, candidate_id: Id, term: u64) -> Option<State> {
         if term > self.term {
             self.cluster
-                .send(&candidate_id, ServerMessage::vote_response(true, term))
+                .send(&candidate_id, Message::vote_response(true, term))
                 .await;
 
             Some(State::follower(self.id, term, None)) // TODO: figure out leader id
@@ -121,10 +126,12 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         }
     }
 
-    async fn on_client_request(&mut self, responder: mpsc::UnboundedSender<Response>) {
-        responder
-            .send(Response::store_redirect_response())
-            .expect("This is unexpected!");
+    fn on_client_request(&mut self, request: Request, responder: mpsc::UnboundedSender<Response>) {
+        match request {
+            StoreRequest { payload: _ } => responder
+                .send(Response::store_redirect_response())
+                .expect("This is unexpected!"),
+        }
     }
 }
 
@@ -136,7 +143,7 @@ mod tests {
     use mockall::predicate::eq;
     use tokio::time::Duration;
 
-    use crate::cluster::protocol::ServerMessage;
+    use crate::cluster::protocol::Message;
     use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
     use crate::Id;
@@ -211,7 +218,7 @@ mod tests {
 
         cluster
             .expect_send()
-            .with(eq(PEER_ID), eq(ServerMessage::vote_response(true, TERM + 1)))
+            .with(eq(PEER_ID), eq(Message::vote_response(true, TERM + 1)))
             .return_const(());
 
         let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
@@ -370,9 +377,9 @@ mod tests {
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
             fn size(&self) -> usize;
-            async fn send(&self, member_id: &Id, message: ServerMessage);
-            async fn broadcast(&self, message: ServerMessage);
-            async fn messages(&mut self) -> Option<ServerMessage>;
+            async fn send(&self, member_id: &Id, message: Message);
+            async fn broadcast(&self, message: Message);
+            async fn messages(&mut self) -> Option<Message>;
         }
     }
 

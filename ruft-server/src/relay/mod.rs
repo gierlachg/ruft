@@ -38,13 +38,13 @@ impl PhysicalRelay {
 
     async fn listen(
         mut connections: Connections,
-        tx: mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>,
+        requests: mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>,
     ) {
         let (_shutdown_tx, shutdown_rx) = watch::channel(());
         loop {
             tokio::select! {
                 result = connections.next() => match result {
-                    Ok(connection) => Self::on_connection(connection, tx.clone(), shutdown_rx.clone()),
+                    Ok(connection) => Self::on_connection(connection, requests.clone(), shutdown_rx.clone()),
                     Err(e) => {
                         trace!("Error accepting connection; error = {:?}", e);
                         break

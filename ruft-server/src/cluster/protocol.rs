@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use derive_more::Display;
 
-use crate::cluster::protocol::ServerMessage::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::storage::Position;
 use crate::Id;
 
@@ -13,7 +13,7 @@ const VOTE_REQUEST_MESSAGE_ID: u16 = 3;
 const VOTE_RESPONSE_MESSAGE_ID: u16 = 4;
 
 #[derive(PartialEq, Display, Debug)]
-pub(crate) enum ServerMessage {
+pub(crate) enum Message {
     #[display(
         fmt = "AppendRequest {{ leader_id: {}, preceding position: {:?}, term: {} }}",
         leader_id,
@@ -55,7 +55,7 @@ pub(crate) enum ServerMessage {
     VoteResponse { vote_granted: bool, term: u64 },
 }
 
-impl ServerMessage {
+impl Message {
     pub(crate) fn append_request(leader_id: Id, preceding_position: Position, term: u64, entries: Vec<Bytes>) -> Self {
         AppendRequest {
             leader_id,
@@ -86,7 +86,7 @@ impl ServerMessage {
     }
 }
 
-impl Into<Bytes> for ServerMessage {
+impl Into<Bytes> for Message {
     fn into(self) -> Bytes {
         let mut bytes = BytesMut::new();
         match self {
@@ -140,7 +140,7 @@ impl Into<Bytes> for ServerMessage {
 }
 
 // TODO: TryFrom
-impl From<Bytes> for ServerMessage {
+impl From<Bytes> for Message {
     fn from(mut bytes: Bytes) -> Self {
         let r#type = bytes.get_u16_le();
         match r#type {
@@ -195,7 +195,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            ServerMessage::from(bytes),
+            Message::from(bytes),
             AppendRequest {
                 leader_id: 1,
                 preceding_position: Position::of(12, 69),
@@ -214,7 +214,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            ServerMessage::from(bytes),
+            Message::from(bytes),
             AppendResponse {
                 member_id: 10,
                 success: true,
@@ -232,7 +232,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            ServerMessage::from(bytes),
+            Message::from(bytes),
             VoteRequest {
                 candidate_id: 1,
                 term: 128,
@@ -249,7 +249,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            ServerMessage::from(bytes),
+            Message::from(bytes),
             VoteResponse {
                 vote_granted: true,
                 term: 128,
