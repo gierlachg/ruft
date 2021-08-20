@@ -36,14 +36,6 @@ impl Id {
     pub const MAX: u8 = u8::MAX;
 }
 
-impl TryFrom<usize> for Id {
-    type Error = TryFromIntError;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(Id(u8::try_from(value)?))
-    }
-}
-
 impl Deref for Id {
     type Target = u8;
 
@@ -87,7 +79,7 @@ fn to_endpoints(local_endpoint: SocketAddr, remote_endpoints: Vec<SocketAddr>) -
     let mut endpoints = endpoints
         .into_iter()
         .enumerate()
-        .map(|(i, endpoint)| Endpoint::new(Id::try_from(i).unwrap(), endpoint))
+        .map(|(i, endpoint)| Endpoint::new(Id(u8::try_from(i).unwrap()), endpoint))
         .collect::<Vec<Endpoint>>();
 
     let local_endpoint_position = endpoints
