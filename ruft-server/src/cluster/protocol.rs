@@ -12,6 +12,8 @@ const APPEND_RESPONSE_MESSAGE_ID: u16 = 2;
 const VOTE_REQUEST_MESSAGE_ID: u16 = 3;
 const VOTE_RESPONSE_MESSAGE_ID: u16 = 4;
 
+// TODO: abstract Id inner type
+
 #[derive(PartialEq, Display, Debug)]
 pub(crate) enum Message {
     #[display(
