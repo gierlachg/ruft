@@ -6,7 +6,6 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::hash::Hash;
 use std::net::SocketAddr;
-use std::num::TryFromIntError;
 use std::ops::Deref;
 
 use crate::automaton::Automaton;
