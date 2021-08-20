@@ -15,7 +15,7 @@ const VOTE_RESPONSE_MESSAGE_ID: u16 = 4;
 #[derive(PartialEq, Display, Debug)]
 pub(crate) enum Message {
     #[display(
-        fmt = "AppendRequest {{ leader_id: {}, preceding position: {:?}, term: {} }}",
+        fmt = "AppendRequest {{ leader_id: {:?}, preceding position: {:?}, term: {} }}",
         leader_id,
         preceding_position,
         term
@@ -28,7 +28,7 @@ pub(crate) enum Message {
     },
 
     #[display(
-        fmt = "AppendResponse {{ member_id: {}, success: {}, position: {:?} }}",
+        fmt = "AppendResponse {{ member_id: {:?}, success: {}, position: {:?} }}",
         member_id,
         success,
         position
@@ -40,7 +40,7 @@ pub(crate) enum Message {
     },
 
     #[display(
-        fmt = "VoteRequest {{ candidate_id: {}, term: {}, position: {:?} }}",
+        fmt = "VoteRequest {{ candidate_id: {:?}, term: {}, position: {:?} }}",
         candidate_id,
         term,
         position
@@ -97,7 +97,7 @@ impl Into<Bytes> for Message {
                 entries,
             } => {
                 bytes.put_u16_le(APPEND_REQUEST_MESSAGE_ID);
-                bytes.put_u8(leader_id);
+                bytes.put_u8(*leader_id);
                 bytes.put_u64_le(preceding_position.term());
                 bytes.put_u64_le(preceding_position.index());
                 bytes.put_u64_le(term);
@@ -113,7 +113,7 @@ impl Into<Bytes> for Message {
                 position,
             } => {
                 bytes.put_u16_le(APPEND_RESPONSE_MESSAGE_ID);
-                bytes.put_u8(member_id);
+                bytes.put_u8(*member_id);
                 bytes.put_u8(if success { 1 } else { 0 });
                 bytes.put_u64_le(position.term());
                 bytes.put_u64_le(position.index());
@@ -124,7 +124,7 @@ impl Into<Bytes> for Message {
                 position,
             } => {
                 bytes.put_u16_le(VOTE_REQUEST_MESSAGE_ID);
-                bytes.put_u8(candidate_id);
+                bytes.put_u8(*candidate_id);
                 bytes.put_u64_le(term);
                 bytes.put_u64_le(position.term());
                 bytes.put_u64_le(position.index());
@@ -156,19 +156,19 @@ impl From<Bytes> for Message {
                     })
                     .collect();
                 AppendRequest {
-                    leader_id,
+                    leader_id: Id(leader_id),
                     preceding_position,
                     term,
                     entries,
                 }
             }
             APPEND_RESPONSE_MESSAGE_ID => AppendResponse {
-                member_id: bytes.get_u8(),
+                member_id: Id(bytes.get_u8()),
                 success: bytes.get_u8() == 1,
                 position: Position::of(bytes.get_u64_le(), bytes.get_u64_le()),
             },
             VOTE_REQUEST_MESSAGE_ID => VoteRequest {
-                candidate_id: bytes.get_u8(),
+                candidate_id: Id(bytes.get_u8()),
                 term: bytes.get_u64_le(),
                 position: Position::of(bytes.get_u64_le(), bytes.get_u64_le()),
             },
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn append_request() {
         let bytes: Bytes = AppendRequest {
-            leader_id: 1,
+            leader_id: Id(1),
             preceding_position: Position::of(12, 69),
             term: 128,
             entries: vec![Bytes::from_static(&[1]), Bytes::from_static(&[2])],
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(
             Message::from(bytes),
             AppendRequest {
-                leader_id: 1,
+                leader_id: Id(1),
                 preceding_position: Position::of(12, 69),
                 term: 128,
                 entries: vec![Bytes::from_static(&[1]), Bytes::from_static(&[2])],
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn append_response() {
         let bytes: Bytes = AppendResponse {
-            member_id: 10,
+            member_id: Id(10),
             success: true,
             position: Position::of(12, 69),
         }
@@ -216,7 +216,7 @@ mod tests {
         assert_eq!(
             Message::from(bytes),
             AppendResponse {
-                member_id: 10,
+                member_id: Id(10),
                 success: true,
                 position: Position::of(12, 69),
             }
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn vote_request() {
         let bytes: Bytes = VoteRequest {
-            candidate_id: 1,
+            candidate_id: Id(1),
             term: 128,
             position: Position::of(10, 10),
         }
@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(
             Message::from(bytes),
             VoteRequest {
-                candidate_id: 1,
+                candidate_id: Id(1),
                 term: 128,
                 position: Position::of(10, 10),
             }

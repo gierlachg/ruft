@@ -131,7 +131,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         if term > self.term {
             Some(State::follower(self.id, term, Some(leader_id)))
         } else if term == self.term {
-            panic!("Double leader detected - term: {}, leader id: {}", term, leader_id);
+            panic!("Double leader detected - term: {}, leader id: {:?}", term, leader_id);
         } else {
             self.cluster
                 .send(
@@ -149,7 +149,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         } else if success && position == *self.storage.head() {
             match self.trackers.get_mut(&member_id) {
                 Some(tracker) => tracker.clear_next_position(),
-                None => panic!("Missing member of id: {}", member_id),
+                None => panic!("Missing member of id: {:?}", member_id),
             }
             None
         } else {
@@ -256,8 +256,8 @@ mod tests {
 
     use super::*;
 
-    const ID: u8 = 1;
-    const PEER_ID: u8 = 2;
+    const ID: Id = Id(1);
+    const PEER_ID: Id = Id(2);
 
     const TERM: u64 = 10;
 

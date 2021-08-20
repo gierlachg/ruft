@@ -67,7 +67,7 @@ impl Cluster for PhysicalCluster {
     async fn send(&self, member_id: &Id, message: Message) {
         match self.egresses.get(&member_id) {
             Some(egress) => egress.send(message.into()).await,
-            None => panic!("Missing member of id: {}", member_id),
+            None => panic!("Missing member of id: {:?}", member_id),
         }
     }
 

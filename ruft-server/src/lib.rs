@@ -4,7 +4,10 @@
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
 use std::error::Error;
+use std::hash::Hash;
 use std::net::SocketAddr;
+use std::num::TryFromIntError;
+use std::ops::Deref;
 
 use crate::automaton::Automaton;
 
@@ -26,7 +29,28 @@ impl RuftServer {
     }
 }
 
-type Id = u8;
+#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Copy, Debug)]
+struct Id(u8);
+
+impl Id {
+    pub const MAX: u8 = u8::MAX;
+}
+
+impl TryFrom<usize> for Id {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(Id(u8::try_from(value)?))
+    }
+}
+
+impl Deref for Id {
+    type Target = u8;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 struct Endpoint {

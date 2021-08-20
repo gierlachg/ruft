@@ -142,8 +142,8 @@ mod tests {
 
     use super::*;
 
-    const ID: u8 = 1;
-    const PEER_ID: u8 = 2;
+    const ID: Id = Id(1);
+    const PEER_ID: Id = Id(2);
 
     const TERM: u64 = 10;
 
