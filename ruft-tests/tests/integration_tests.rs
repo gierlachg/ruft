@@ -13,6 +13,7 @@ async fn test_client_connection_timeout() {
     RuftClient::new(vec![address()], 1).await.unwrap();
 }
 
+#[ignore]
 #[tokio::test(flavor = "current_thread")]
 async fn test_successful_store() {
     let client_endpoints = addresses(2);
