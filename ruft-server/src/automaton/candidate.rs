@@ -2,7 +2,7 @@ use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{self, AppendRequest, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::StoreRequest;
 use crate::relay::protocol::{Request, Response};
@@ -58,27 +58,11 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                     }
                     None => return None
                 },
-                result = self.relay.requests() => match result {
+                request = self.relay.requests() => match request {
                     Some((request, responder)) => self.on_client_request(request, responder),
                     None => return None
                 }
             }
-        }
-    }
-
-    async fn on_message(&mut self, message: Message) -> Option<State> {
-        #[rustfmt::skip]
-        match message {
-            AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
-                self.on_append_request(leader_id, term)
-            },
-            AppendResponse { member_id: _, success: _, position: _ } => None,
-            VoteRequest { candidate_id, term, position: _ } => {
-                self.on_vote_request(candidate_id, term).await
-            },
-            VoteResponse { vote_granted, term } => {
-                self.on_vote_response(vote_granted, term)
-            },
         }
     }
 
@@ -88,6 +72,22 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         self.cluster
             .broadcast(Message::vote_request(self.id, self.term, *self.storage.head()))
             .await;
+    }
+
+    async fn on_message(&mut self, message: Message) -> Option<State> {
+        #[rustfmt::skip]
+        match message {
+            AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
+                self.on_append_request(leader_id, term)
+            },
+            VoteRequest { candidate_id, term, position: _ } => {
+                self.on_vote_request(candidate_id, term).await
+            },
+            VoteResponse { vote_granted, term } => {
+                self.on_vote_response(vote_granted, term)
+            },
+            _ => None
+        }
     }
 
     fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
@@ -117,6 +117,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         } else if term == self.term && vote_granted {
             self.granted_votes += 1;
             if self.granted_votes > self.cluster.size() / 2 {
+                // TODO: dedup with replication
                 Some(State::leader(self.id, self.term))
             } else {
                 None

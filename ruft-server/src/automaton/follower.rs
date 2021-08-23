@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
 use crate::automaton::State;
-use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::cluster::protocol::Message::{self, AppendRequest, VoteRequest};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::StoreRequest;
 use crate::relay::protocol::{Request, Response};
@@ -55,7 +55,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
                     Some(message) => self.on_message(message).await,
                     None => return None
                 },
-                result = self.relay.requests() => match result {
+                request = self.relay.requests() => match request {
                     Some((request, responder)) => self.on_client_request(request, responder),
                     None => return None
                 }
@@ -68,12 +68,11 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         match message {
             AppendRequest { leader_id, preceding_position, term, entries } => {
                 self.on_append_request(leader_id, preceding_position, term, entries).await
-            }
-            AppendResponse { member_id: _, success: _, position: _ } => {}
+            },
             VoteRequest { candidate_id, term, position } => {
                 self.on_vote_request(candidate_id, term, position).await
             },
-            VoteResponse { vote_granted: _, term: _ } => {}
+            _ => {}
         }
     }
 

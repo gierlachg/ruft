@@ -29,7 +29,7 @@ pub(crate) trait Storage {
     async fn next<'a>(&'a self, preceding_position: &Position) -> Option<(&'a Position, &'a Bytes)>;
 }
 
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
 pub(crate) struct Position(u64, u64);
 
 impl Position {

@@ -59,6 +59,7 @@ pub(crate) enum Message {
 
 impl Message {
     pub(crate) fn append_request(leader_id: Id, preceding_position: Position, term: u64, entries: Vec<Bytes>) -> Self {
+        // TODO committed
         AppendRequest {
             leader_id,
             preceding_position,
