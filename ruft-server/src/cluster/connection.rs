@@ -40,6 +40,10 @@ impl Egress {
         self.endpoint.id()
     }
 
+    pub(super) fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
+    }
+
     pub(super) async fn send(&self, message: Bytes) {
         let mut holder = self.writer.lock().await;
         if let Some(writer) = holder.as_mut() {

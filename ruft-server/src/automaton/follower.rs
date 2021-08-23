@@ -19,7 +19,8 @@ pub(super) struct Follower<'a, S: Storage, C: Cluster, R: Relay> {
     cluster: &'a mut C,
     relay: &'a mut R,
 
-    _leader_id: Option<Id>,
+    leader_id: Option<Id>,
+    queue: Queue,
 
     election_timeout: Duration,
 }
@@ -34,13 +35,16 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         leader_id: Option<Id>,
         election_timeout: Duration,
     ) -> Self {
+        let queue = Queue::new();
+
         Follower {
             id,
             term,
             storage,
             cluster,
             relay,
-            _leader_id: leader_id,
+            leader_id,
+            queue,
             election_timeout,
         }
     }
@@ -82,7 +86,10 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
             self.term = term;
         }
         if term >= self.term {
-            self._leader_id = Some(leader_id);
+            self.leader_id = Some(leader_id);
+            self.queue
+                .redirect(&self.cluster.endpoint(&leader_id).address.to_string());
+            // TODO
         }
 
         match self.storage.insert(&preceding_position, term, entries).await {
@@ -105,7 +112,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         if term > self.term && position >= *self.storage.head() {
             // TODO: should it be actually updated ?
             self.term = term;
-            self._leader_id = None;
+            self.leader_id = None;
 
             self.cluster
                 .send(&candidate_id, Message::vote_response(true, self.term))
@@ -119,9 +126,38 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
 
     fn on_client_request(&mut self, request: Request, responder: mpsc::UnboundedSender<Response>) {
         match request {
-            StoreRequest { payload: _ } => responder
-                .send(Response::store_redirect_response())
-                .expect("This is unexpected!"),
+            StoreRequest { payload: _ } => match self.leader_id {
+                Some(ref leader_id) => responder
+                    .send(Response::store_redirect_response(
+                        &self.cluster.endpoint(leader_id).address.to_string(), // TODO:
+                    ))
+                    .expect("This is unexpected!"),
+                None => self.queue.enqueue(responder),
+            },
+        }
+    }
+}
+
+// TODO: shared...
+struct Queue {
+    responders: Vec<mpsc::UnboundedSender<Response>>,
+}
+
+impl Queue {
+    fn new() -> Self {
+        Queue { responders: vec![] }
+    }
+
+    fn enqueue(&mut self, responder: mpsc::UnboundedSender<Response>) {
+        self.responders.push(responder);
+    }
+
+    fn redirect(&mut self, leader_address: &str) {
+        while !self.responders.is_empty() {
+            self.responders
+                .remove(0)
+                .send(Response::store_redirect_response(leader_address))
+                .expect("This is unexpected!");
         }
     }
 }
@@ -137,7 +173,7 @@ mod tests {
     use crate::cluster::protocol::Message;
     use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
-    use crate::Id;
+    use crate::{Endpoint, Id};
 
     use super::*;
 
@@ -160,6 +196,10 @@ mod tests {
             .returning(|position, _, _| Ok(position.clone()));
 
         cluster
+            .expect_endpoint()
+            .with(eq(PEER_ID))
+            .return_const(Endpoint::new(PEER_ID, "127.0.0.1:8080".parse().unwrap())); // TODO
+        cluster
             .expect_send()
             .with(eq(PEER_ID), eq(Message::append_response(ID, true, position)))
             .return_const(());
@@ -171,7 +211,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower._leader_id, Some(PEER_ID));
+        assert_eq!(follower.leader_id, Some(PEER_ID));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -188,6 +228,10 @@ mod tests {
             .returning(|position, _, _| Err(position.clone()));
 
         cluster
+            .expect_endpoint()
+            .with(eq(PEER_ID))
+            .return_const(Endpoint::new(PEER_ID, "127.0.0.1:8080".parse().unwrap())); // TODO
+        cluster
             .expect_send()
             .with(eq(PEER_ID), eq(Message::append_response(ID, false, position)))
             .return_const(());
@@ -199,7 +243,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower._leader_id, Some(PEER_ID));
+        assert_eq!(follower.leader_id, Some(PEER_ID));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -223,7 +267,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower._leader_id, None);
+        assert_eq!(follower.leader_id, None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -240,7 +284,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM);
-        assert_eq!(follower._leader_id, None);
+        assert_eq!(follower.leader_id, None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -264,7 +308,7 @@ mod tests {
 
         // then
         assert_eq!(follower.term, TERM);
-        assert_eq!(follower._leader_id, None);
+        assert_eq!(follower.leader_id, None);
     }
 
     fn infrastructure() -> (MockStorage, MockCluster, MockRelay) {
@@ -297,6 +341,7 @@ mod tests {
         #[async_trait]
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
+            fn endpoint(&self, id: &Id) -> &Endpoint;
             fn size(&self) -> usize;
             async fn send(&self, member_id: &Id, message: Message);
             async fn broadcast(&self, message: Message);

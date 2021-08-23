@@ -18,6 +18,7 @@ pub(super) struct Candidate<'a, S: Storage, C: Cluster, R: Relay> {
     relay: &'a mut R,
 
     granted_votes: usize,
+    queue: Queue,
 
     election_timeout: Duration,
 }
@@ -31,6 +32,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         relay: &'a mut R,
         election_timeout: Duration,
     ) -> Self {
+        let queue = Queue::new();
+
         Candidate {
             id,
             term,
@@ -38,6 +41,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
             cluster,
             relay,
             granted_votes: 0,
+            queue,
             election_timeout,
         }
     }
@@ -93,6 +97,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
         if term >= self.term {
             // TODO: strictly higher ?
+            self.queue
+                .redirect(&self.cluster.endpoint(&leader_id).address.to_string()); // TODO
             Some(State::follower(self.id, term, Some(leader_id)))
         } else {
             None
@@ -105,6 +111,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                 .send(&candidate_id, Message::vote_response(true, term))
                 .await;
 
+            // TODO: redirect
             Some(State::follower(self.id, term, None)) // TODO: figure out leader id
         } else {
             None
@@ -113,11 +120,13 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 
     fn on_vote_response(&mut self, vote_granted: bool, term: u64) -> Option<State> {
         if term > self.term {
+            // TODO: redirect
             Some(State::follower(self.id, term, None)) // TODO: figure out leader id
         } else if term == self.term && vote_granted {
             self.granted_votes += 1;
             if self.granted_votes > self.cluster.size() / 2 {
                 // TODO: dedup with replication
+                // TODO: pass pending
                 Some(State::leader(self.id, self.term))
             } else {
                 None
@@ -129,9 +138,31 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 
     fn on_client_request(&mut self, request: Request, responder: mpsc::UnboundedSender<Response>) {
         match request {
-            StoreRequest { payload: _ } => responder
-                .send(Response::store_redirect_response())
-                .expect("This is unexpected!"),
+            StoreRequest { payload: _ } => self.queue.enqueue(responder),
+        }
+    }
+}
+
+// TODO: shared...
+struct Queue {
+    responders: Vec<mpsc::UnboundedSender<Response>>,
+}
+
+impl Queue {
+    fn new() -> Self {
+        Queue { responders: vec![] }
+    }
+
+    fn enqueue(&mut self, responder: mpsc::UnboundedSender<Response>) {
+        self.responders.push(responder);
+    }
+
+    fn redirect(&mut self, leader_address: &str) {
+        while !self.responders.is_empty() {
+            self.responders
+                .remove(0)
+                .send(Response::store_redirect_response(leader_address))
+                .expect("This is unexpected!");
         }
     }
 }
@@ -147,7 +178,7 @@ mod tests {
     use crate::cluster::protocol::Message;
     use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
-    use crate::Id;
+    use crate::{Endpoint, Id};
 
     use super::*;
 
@@ -160,6 +191,11 @@ mod tests {
     fn when_append_request_term_greater_then_switch_to_follower() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
+
+        cluster
+            .expect_endpoint()
+            .with(eq(PEER_ID))
+            .return_const(Endpoint::new(PEER_ID, "127.0.0.1:8080".parse().unwrap())); // TODO
 
         let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
 
@@ -181,6 +217,11 @@ mod tests {
     fn when_append_request_term_equal_then_switch_to_follower() {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
+
+        cluster
+            .expect_endpoint()
+            .with(eq(PEER_ID))
+            .return_const(Endpoint::new(PEER_ID, "127.0.0.1:8080".parse().unwrap())); // TODO
 
         let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
 
@@ -377,6 +418,7 @@ mod tests {
         #[async_trait]
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
+            fn endpoint(&self, id: &Id) -> &Endpoint;
             fn size(&self) -> usize;
             async fn send(&self, member_id: &Id, message: Message);
             async fn broadcast(&self, message: Message);

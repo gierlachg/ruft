@@ -267,7 +267,7 @@ mod tests {
     use crate::cluster::protocol::Message;
     use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
-    use crate::Id;
+    use crate::{Endpoint, Id};
 
     use super::*;
 
@@ -627,6 +627,7 @@ mod tests {
         #[async_trait]
         trait Cluster {
             fn member_ids(&self) ->  Vec<Id>;
+            fn endpoint(&self, id: &Id) -> &Endpoint;
             fn size(&self) -> usize;
             async fn send(&self, member_id: &Id, message: Message);
             async fn broadcast(&self, message: Message);

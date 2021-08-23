@@ -42,7 +42,7 @@ pub(crate) enum Response {
     StoreSuccessResponse {},
 
     #[display(fmt = "StoreRedirectResponse {{ }}")]
-    StoreRedirectResponse {}, // TODO: pass the leader ip/id
+    StoreRedirectResponse { leader_address: String }, // TODO: pass the leader ip/id
 }
 
 // TODO: TryFrom
@@ -51,7 +51,11 @@ impl From<Bytes> for Response {
         let r#type = bytes.get_u16_le();
         match r#type {
             STORE_SUCCESS_RESPONSE_MESSAGE_ID => StoreSuccessResponse {},
-            STORE_REDIRECT_RESPONSE_MESSAGE_ID => StoreRedirectResponse {},
+            STORE_REDIRECT_RESPONSE_MESSAGE_ID => {
+                StoreRedirectResponse {
+                    leader_address: String::from_utf8_lossy(&bytes[..]).into(),
+                } // TODO
+            }
             r#type => panic!("Unknown message type: {}", r#type),
         }
     }

@@ -76,7 +76,10 @@ impl Relay {
                 result = connection.read() =>  match result.and_then(Result::ok).map(Response::from) {
                     Some(response) => match response {
                         StoreSuccessResponse {} =>  responders.pop().respond_with_success(),
-                        StoreRedirectResponse {} =>  responders.pop().respond_with_error(""), // TODO: connect to the leader
+                        StoreRedirectResponse {leader_address: leader_address} =>  {
+                            println!("redirect {}", leader_address);
+                            responders.pop().respond_with_error(""); // TODO: connect to the leader
+                        }
                     },
                     None => return BROKEN
                 }
