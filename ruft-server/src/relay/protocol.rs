@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::net::SocketAddr;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use derive_more::Display;
@@ -37,7 +38,7 @@ pub(crate) enum Response {
     StoreSuccessResponse {},
 
     #[display(fmt = "StoreRedirectResponse {{ }}")]
-    StoreRedirectResponse { leader_address: String },
+    StoreRedirectResponse { leader_address: SocketAddr },
 }
 
 impl Response {
@@ -45,10 +46,8 @@ impl Response {
         StoreSuccessResponse {}
     }
 
-    pub(crate) fn store_redirect_response(leader_address: &str) -> Self {
-        StoreRedirectResponse {
-            leader_address: leader_address.to_string(),
-        }
+    pub(crate) fn store_redirect_response(leader_address: SocketAddr) -> Self {
+        StoreRedirectResponse { leader_address }
     }
 }
 
@@ -60,6 +59,8 @@ impl Into<Bytes> for Response {
                 bytes.put_u16_le(STORE_SUCCESS_RESPONSE_MESSAGE_ID);
             }
             StoreRedirectResponse { leader_address } => {
+                let leader_address = leader_address.to_string();
+
                 bytes.put_u16_le(STORE_REDIRECT_RESPONSE_MESSAGE_ID);
                 bytes.put_u32_le(leader_address.len().try_into().expect("Unable to convert"));
                 bytes.put(leader_address.as_bytes());

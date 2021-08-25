@@ -1,13 +1,9 @@
-use std::net::SocketAddr;
-
-use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
-use crate::automaton::State;
+use crate::automaton::{Exchanges, Responder, State};
 use crate::cluster::protocol::Message::{self, AppendRequest, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Request::StoreRequest;
-use crate::relay::protocol::{Request, Response};
+use crate::relay::protocol::Request;
 use crate::relay::Relay;
 use crate::storage::Storage;
 use crate::Id;
@@ -18,9 +14,9 @@ pub(super) struct Candidate<'a, S: Storage, C: Cluster, R: Relay> {
     storage: &'a mut S,
     cluster: &'a mut C,
     relay: &'a mut R,
+    exchanges: &'a mut Exchanges,
 
     granted_votes: usize,
-    queue: Queue,
 
     election_timeout: Duration,
 }
@@ -32,18 +28,17 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         storage: &'a mut S,
         cluster: &'a mut C,
         relay: &'a mut R,
+        exchanges: &'a mut Exchanges,
         election_timeout: Duration,
     ) -> Self {
-        let queue = Queue::new();
-
         Candidate {
             id,
             term,
             storage,
             cluster,
             relay,
+            exchanges,
             granted_votes: 0,
-            queue,
             election_timeout,
         }
     }
@@ -65,7 +60,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                     None => return None
                 },
                 request = self.relay.requests() => match request {
-                    Some((request, responder)) => self.on_client_request(request, responder),
+                    Some((request, responder)) => self.on_client_request(request, Responder(responder)),
                     None => return None
                 }
             }
@@ -99,8 +94,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
         // TODO: strictly higher ?
         if term >= self.term {
-            // TODO:
-            self.queue.redirect(self.cluster.endpoint(&leader_id).client_address());
+            self.exchanges
+                .respond_with_redirect(self.cluster.endpoint(&leader_id).client_address());
 
             Some(State::follower(self.id, term, Some(leader_id)))
         } else {
@@ -114,11 +109,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                 .send(&candidate_id, Message::vote_response(true, term))
                 .await;
 
-            // TODO:
-            self.queue
-                .redirect(self.cluster.endpoint(&candidate_id).client_address());
-
-            Some(State::follower(self.id, term, None)) // TODO: figure out leader id
+            Some(State::follower(self.id, term, None))
         } else {
             None
         }
@@ -126,18 +117,11 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 
     fn on_vote_response(&mut self, vote_granted: bool, term: u64) -> Option<State> {
         if term > self.term {
-            // TODO:
-            self.queue.redirect(self.cluster.endpoint(&self.id).client_address());
-
-            Some(State::follower(self.id, term, None)) // TODO: figure out leader id
+            Some(State::follower(self.id, term, None))
         } else if term == self.term && vote_granted {
             self.granted_votes += 1;
             if self.granted_votes > self.cluster.size() / 2 {
                 // TODO: cluster size: dedup with replication
-
-                // TODO:
-                self.queue.redirect(self.cluster.endpoint(&self.id).client_address());
-
                 Some(State::leader(self.id, self.term))
             } else {
                 None
@@ -147,35 +131,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         }
     }
 
-    fn on_client_request(&mut self, request: Request, responder: mpsc::UnboundedSender<Response>) {
-        match request {
-            StoreRequest { payload: _ } => self.queue.enqueue(responder),
-        }
-    }
-}
-
-// TODO: shared...
-#[derive(Clone)]
-struct Queue {
-    responders: Vec<mpsc::UnboundedSender<Response>>,
-}
-
-impl Queue {
-    fn new() -> Self {
-        Queue { responders: vec![] }
-    }
-
-    fn enqueue(&mut self, responder: mpsc::UnboundedSender<Response>) {
-        self.responders.push(responder);
-    }
-
-    fn redirect(&mut self, address: &SocketAddr) {
-        while !self.responders.is_empty() {
-            self.responders
-                .remove(0)
-                .send(Response::store_redirect_response(&address.to_string()))
-                .expect("This is unexpected!");
-        }
+    fn on_client_request(&mut self, request: Request, responder: Responder) {
+        self.exchanges.enqueue(request, responder)
     }
 }
 
@@ -185,6 +142,7 @@ mod tests {
     use bytes::Bytes;
     use mockall::mock;
     use mockall::predicate::eq;
+    use tokio::sync::mpsc;
     use tokio::time::Duration;
 
     use crate::cluster::protocol::Message;
@@ -202,7 +160,7 @@ mod tests {
     #[test]
     fn when_append_request_term_greater_then_switch_to_follower() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         // TODO:
         cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
@@ -211,7 +169,7 @@ mod tests {
             "127.0.0.1:8081".parse().unwrap(),
         ));
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_append_request(PEER_ID, TERM + 1);
@@ -230,7 +188,7 @@ mod tests {
     #[test]
     fn when_append_request_term_equal_then_switch_to_follower() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         // TODO:
         cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
@@ -239,7 +197,7 @@ mod tests {
             "127.0.0.1:8081".parse().unwrap(),
         ));
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_append_request(PEER_ID, TERM);
@@ -258,9 +216,9 @@ mod tests {
     #[test]
     fn when_append_request_term_less_then_ignore() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_append_request(PEER_ID, TERM - 1);
@@ -272,7 +230,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_greater_then_respond_and_switch_to_follower() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         // TODO:
         cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
@@ -285,7 +243,7 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::vote_response(true, TERM + 1)))
             .return_const(());
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_vote_request(PEER_ID, TERM + 1).await;
@@ -304,9 +262,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_equal_then_ignore() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_vote_request(PEER_ID, TERM).await;
@@ -318,9 +276,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_less_then_ignore() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_vote_request(PEER_ID, TERM - 1).await;
@@ -332,7 +290,7 @@ mod tests {
     #[test]
     fn when_vote_response_term_greater_then_switch_to_follower() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         // TODO:
         cluster.expect_endpoint().with(eq(ID)).return_const(Endpoint::new(
@@ -341,7 +299,7 @@ mod tests {
             "127.0.0.1:8081".parse().unwrap(),
         ));
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_vote_response(false, TERM + 1);
@@ -360,9 +318,9 @@ mod tests {
     #[test]
     fn when_vote_response_term_equal_but_vote_not_granted_then_ignore() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_vote_response(false, TERM);
@@ -374,11 +332,11 @@ mod tests {
     #[test]
     fn when_vote_response_term_equal_and_vote_granted_but_quorum_not_reached_then_continue() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         cluster.expect_size().return_const(3usize);
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_vote_response(true, TERM);
@@ -390,7 +348,7 @@ mod tests {
     #[test]
     fn when_vote_response_term_equal_vote_granted_and_quorum_reached_then_switch_to_leader() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         cluster.expect_size().times(2).return_const(3usize);
         // TODO:
@@ -400,7 +358,7 @@ mod tests {
             "127.0.0.1:8081".parse().unwrap(),
         ));
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
         candidate.on_vote_response(true, TERM);
 
         // when
@@ -413,9 +371,9 @@ mod tests {
     #[test]
     fn when_vote_response_term_less_then_ignore() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
-        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
+        let mut candidate = candidate(&mut storage, &mut cluster, &mut relay, &mut exchanges);
 
         // when
         let state = candidate.on_vote_response(true, TERM - 1);
@@ -424,16 +382,22 @@ mod tests {
         assert_eq!(state, None);
     }
 
-    fn infrastructure() -> (MockStorage, MockCluster, MockRelay) {
-        (MockStorage::new(), MockCluster::new(), MockRelay::new())
+    fn infrastructure() -> (MockStorage, MockCluster, MockRelay, Exchanges) {
+        (
+            MockStorage::new(),
+            MockCluster::new(),
+            MockRelay::new(),
+            Exchanges::new(),
+        )
     }
 
     fn candidate<'a>(
         storage: &'a mut MockStorage,
         cluster: &'a mut MockCluster,
         relay: &'a mut MockRelay,
+        exchanges: &'a mut Exchanges,
     ) -> Candidate<'a, MockStorage, MockCluster, MockRelay> {
-        Candidate::init(ID, TERM, storage, cluster, relay, Duration::from_secs(1))
+        Candidate::init(ID, TERM, storage, cluster, relay, exchanges, Duration::from_secs(1))
     }
 
     mock! {

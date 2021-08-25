@@ -1,15 +1,11 @@
-use std::net::SocketAddr;
-
 use bytes::Bytes;
 use log::info;
-use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
-use crate::automaton::State;
+use crate::automaton::{Exchanges, Responder, State};
 use crate::cluster::protocol::Message::{self, AppendRequest, VoteRequest};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Request::StoreRequest;
-use crate::relay::protocol::{Request, Response};
+use crate::relay::protocol::Request;
 use crate::relay::Relay;
 use crate::storage::{Position, Storage};
 use crate::Id;
@@ -20,9 +16,9 @@ pub(super) struct Follower<'a, S: Storage, C: Cluster, R: Relay> {
     storage: &'a mut S,
     cluster: &'a mut C,
     relay: &'a mut R,
+    exchanges: &'a mut Exchanges,
 
     leader_id: Option<Id>,
-    queue: Queue,
 
     election_timeout: Duration,
 }
@@ -34,19 +30,18 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         storage: &'a mut S,
         cluster: &'a mut C,
         relay: &'a mut R,
+        exchanges: &'a mut Exchanges,
         leader_id: Option<Id>,
         election_timeout: Duration,
     ) -> Self {
-        let queue = Queue::new();
-
         Follower {
             id,
             term,
             storage,
             cluster,
             relay,
+            exchanges,
             leader_id,
-            queue,
             election_timeout,
         }
     }
@@ -55,9 +50,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         loop {
             tokio::select! {
                 _ = time::sleep(self.election_timeout) => {
-                    // TODO:
-                    self.queue.redirect(self.cluster.endpoint(&self.id).client_address());
-
                     return Some(State::CANDIDATE { id: self.id, term: self.term })
                 },
                 message = self.cluster.messages() => match message {
@@ -65,7 +57,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
                     None => return None
                 },
                 request = self.relay.requests() => match request {
-                    Some((request, responder)) => self.on_client_request(request, responder),
+                    Some((request, responder)) => self.on_client_request(request, Responder(responder)),
                     None => return None
                 }
             }
@@ -92,9 +84,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         }
         if term >= self.term {
             self.leader_id = Some(leader_id);
-
-            // TODO:
-            self.queue.redirect(self.cluster.endpoint(&leader_id).client_address());
+            self.exchanges
+                .respond_with_redirect(self.cluster.endpoint(&leader_id).client_address());
         }
 
         match self.storage.insert(&preceding_position, term, entries).await {
@@ -129,41 +120,10 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         }
     }
 
-    fn on_client_request(&mut self, request: Request, responder: mpsc::UnboundedSender<Response>) {
-        match request {
-            StoreRequest { payload: _ } => match self.leader_id {
-                Some(ref leader_id) => responder
-                    .send(Response::store_redirect_response(
-                        &self.cluster.endpoint(leader_id).client_address().to_string(), // TODO:
-                    ))
-                    .expect("This is unexpected!"),
-                None => self.queue.enqueue(responder),
-            },
-        }
-    }
-}
-
-// TODO: shared...
-#[derive(Clone)]
-struct Queue {
-    responders: Vec<mpsc::UnboundedSender<Response>>,
-}
-
-impl Queue {
-    fn new() -> Self {
-        Queue { responders: vec![] }
-    }
-
-    fn enqueue(&mut self, responder: mpsc::UnboundedSender<Response>) {
-        self.responders.push(responder);
-    }
-
-    fn redirect(&mut self, address: &SocketAddr) {
-        while !self.responders.is_empty() {
-            self.responders
-                .remove(0)
-                .send(Response::store_redirect_response(&address.to_string()))
-                .expect("This is unexpected!");
+    fn on_client_request(&mut self, request: Request, responder: Responder) {
+        match self.leader_id {
+            Some(ref leader_id) => responder.respond_with_redirect(self.cluster.endpoint(leader_id).client_address()),
+            None => self.exchanges.enqueue(request, responder),
         }
     }
 }
@@ -174,6 +134,7 @@ mod tests {
     use bytes::Bytes;
     use mockall::{mock, predicate};
     use predicate::eq;
+    use tokio::sync::mpsc;
     use tokio::time::Duration;
 
     use crate::cluster::protocol::Message;
@@ -194,7 +155,7 @@ mod tests {
         let position = Position::of(0, 0);
         let entries = vec![Bytes::from(vec![1])];
 
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         storage
             .expect_insert()
@@ -212,7 +173,7 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::append_response(ID, true, position)))
             .return_const(());
 
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
+        let mut follower = follower(&mut storage, &mut cluster, &mut relay, &mut exchanges, None);
 
         // when
         follower.on_append_request(PEER_ID, position, TERM + 1, entries).await;
@@ -228,7 +189,7 @@ mod tests {
         let position = Position::of(1, 0);
         let entries = vec![Bytes::from(vec![1])];
 
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         storage
             .expect_insert()
@@ -246,7 +207,7 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::append_response(ID, false, position)))
             .return_const(());
 
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
+        let mut follower = follower(&mut storage, &mut cluster, &mut relay, &mut exchanges, None);
 
         // when
         follower.on_append_request(PEER_ID, position, TERM + 1, entries).await;
@@ -261,7 +222,7 @@ mod tests {
         // given
         let position = Position::of(1, 1);
 
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         storage.expect_head().return_const(position);
 
@@ -270,7 +231,7 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::vote_response(true, TERM + 1)))
             .return_const(());
 
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
+        let mut follower = follower(&mut storage, &mut cluster, &mut relay, &mut exchanges, None);
 
         // when
         follower.on_vote_request(PEER_ID, TERM + 1, position).await;
@@ -283,11 +244,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_greater_but_log_is_not_up_to_date_then_ignore() {
         // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         storage.expect_head().return_const(Position::of(1, 1));
 
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
+        let mut follower = follower(&mut storage, &mut cluster, &mut relay, &mut exchanges, None);
 
         // when
         follower.on_vote_request(PEER_ID, TERM + 1, Position::of(1, 0)).await;
@@ -302,7 +263,7 @@ mod tests {
         // given
         let position = Position::of(1, 1);
 
-        let (mut storage, mut cluster, mut relay) = infrastructure();
+        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
 
         storage.expect_head().return_const(position);
 
@@ -311,7 +272,7 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::vote_response(false, TERM)))
             .return_const(());
 
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
+        let mut follower = follower(&mut storage, &mut cluster, &mut relay, &mut exchanges, None);
 
         // when
         follower.on_vote_request(PEER_ID, TERM - 1, position).await;
@@ -321,17 +282,32 @@ mod tests {
         assert_eq!(follower.leader_id, None);
     }
 
-    fn infrastructure() -> (MockStorage, MockCluster, MockRelay) {
-        (MockStorage::new(), MockCluster::new(), MockRelay::new())
+    fn infrastructure() -> (MockStorage, MockCluster, MockRelay, Exchanges) {
+        (
+            MockStorage::new(),
+            MockCluster::new(),
+            MockRelay::new(),
+            Exchanges::new(),
+        )
     }
 
     fn follower<'a>(
         storage: &'a mut MockStorage,
         cluster: &'a mut MockCluster,
         relay: &'a mut MockRelay,
+        exchanges: &'a mut Exchanges,
         leader_id: Option<Id>,
     ) -> Follower<'a, MockStorage, MockCluster, MockRelay> {
-        Follower::init(ID, TERM, storage, cluster, relay, leader_id, Duration::from_secs(1))
+        Follower::init(
+            ID,
+            TERM,
+            storage,
+            cluster,
+            relay,
+            exchanges,
+            leader_id,
+            Duration::from_secs(1),
+        )
     }
 
     mock! {

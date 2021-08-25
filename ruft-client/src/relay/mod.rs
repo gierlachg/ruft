@@ -135,11 +135,11 @@ struct Exchanges(VecDeque<Exchange>);
 impl Exchanges {
     fn enqueue(&mut self, request: Request, responder: Responder) -> Bytes {
         self.0.push_front(Exchange(request.into(), responder));
-        self.0.back().unwrap().request()
+        self.0.front().unwrap().request()
     }
 
     fn dequeue(&mut self) -> Responder {
-        self.0.pop_front().expect("No exchange!").responder()
+        self.0.pop_back().expect("No exchange!").responder()
     }
 
     fn requests<'a>(&'a self) -> impl Iterator<Item = Bytes> + 'a {
