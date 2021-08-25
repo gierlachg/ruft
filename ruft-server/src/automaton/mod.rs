@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use derive_more::Display;
 use log::info;
 use rand::Rng;
 use tokio::time::Duration;
@@ -52,7 +53,7 @@ impl Automaton {
                 leader_id: None,
             }
         };
-        info!("Starting as: {:?}", state);
+        info!("Starting as: {}", state);
 
         loop {
             state = match match state {
@@ -83,16 +84,19 @@ impl Automaton {
                 Some(state) => state,
                 None => break,
             };
-            info!("Switching over to: {:?}", state);
+            info!("Switching over to: {}", state);
         }
         Ok(())
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Display)]
 enum State {
+    #[display(fmt = "LEADER {{ id: {}, term: {} }}", id, term)]
     LEADER { id: Id, term: u64 },
+    #[display(fmt = "CANDIDATE {{ id: {}, term: {} }}", id, term)]
     CANDIDATE { id: Id, term: u64 },
+    #[display(fmt = "FOLLOWER {{ id: {}, term: {}, leader id: {:?} }}", id, term, leader_id)]
     FOLLOWER { id: Id, term: u64, leader_id: Option<Id> },
 }
 

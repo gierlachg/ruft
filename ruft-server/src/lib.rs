@@ -7,6 +7,8 @@ use std::hash::Hash;
 use std::net::SocketAddr;
 use std::ops::Deref;
 
+use derive_more::Display;
+
 use crate::automaton::Automaton;
 
 mod automaton;
@@ -39,7 +41,8 @@ impl RuftServer {
     }
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Copy, Display, Debug)]
+#[display(fmt = "{:?}", _0)]
 struct Id(u8);
 
 impl Id {
@@ -54,7 +57,8 @@ impl Deref for Id {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Clone, Display)]
+#[display(fmt = "{{ id: {}, address: {}, client_address: {} }}", id, address, client_address)]
 struct Endpoint {
     id: Id,
     address: SocketAddr,

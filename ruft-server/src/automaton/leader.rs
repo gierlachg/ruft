@@ -122,7 +122,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         if term > self.term {
             Some(State::follower(self.id, term, Some(leader_id)))
         } else if term == self.term {
-            panic!("Double leader detected - term: {}, leader id: {:?}", term, leader_id);
+            panic!("Double leader detected - term: {}, leader id: {}", term, leader_id);
         } else {
             self.cluster
                 .send(

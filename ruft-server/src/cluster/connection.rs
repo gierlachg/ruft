@@ -17,7 +17,7 @@ use crate::Endpoint;
 const RECONNECT_INTERVAL_MILLIS: u64 = 100;
 
 #[derive(Display)]
-#[display(fmt = "{:?}", endpoint)]
+#[display(fmt = "{}", endpoint)]
 pub(super) struct Egress {
     endpoint: Endpoint,
     writer: Arc<Mutex<Option<Writer>>>,
@@ -52,10 +52,10 @@ impl Egress {
 
     fn reconnect(endpoint: Endpoint, holder: Arc<Mutex<Option<Writer>>>) {
         tokio::spawn(async move {
-            trace!("Trying reconnect to {:?}", &endpoint);
+            trace!("Trying reconnect to {}", endpoint);
             loop {
                 if let Ok(writer) = Writer::connect(endpoint.address()).await {
-                    trace!("Connected {:?}", &endpoint);
+                    trace!("Connected {}", endpoint);
                     holder.lock().await.replace(writer);
                     break;
                 }
@@ -66,7 +66,7 @@ impl Egress {
 }
 
 #[derive(Display)]
-#[display(fmt = "{:?} this", endpoint)]
+#[display(fmt = "{} this", endpoint)]
 pub(super) struct Ingress {
     endpoint: Endpoint,
     messages: mpsc::UnboundedReceiver<Message>,

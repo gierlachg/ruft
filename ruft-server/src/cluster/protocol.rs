@@ -17,7 +17,7 @@ const VOTE_RESPONSE_MESSAGE_ID: u16 = 4;
 #[derive(PartialEq, Display, Debug)]
 pub(crate) enum Message {
     #[display(
-        fmt = "AppendRequest {{ leader_id: {:?}, preceding position: {:?}, term: {} }}",
+        fmt = "AppendRequest {{ leader_id: {}, preceding position: {:?}, term: {} }}",
         leader_id,
         preceding_position,
         term
@@ -30,7 +30,7 @@ pub(crate) enum Message {
     },
 
     #[display(
-        fmt = "AppendResponse {{ member_id: {:?}, success: {}, position: {:?} }}",
+        fmt = "AppendResponse {{ member_id: {}, success: {}, position: {:?} }}",
         member_id,
         success,
         position
@@ -42,7 +42,7 @@ pub(crate) enum Message {
     },
 
     #[display(
-        fmt = "VoteRequest {{ candidate_id: {:?}, term: {}, position: {:?} }}",
+        fmt = "VoteRequest {{ candidate_id: {}, term: {}, position: {:?} }}",
         candidate_id,
         term,
         position
