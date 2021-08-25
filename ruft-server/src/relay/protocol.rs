@@ -37,7 +37,7 @@ pub(crate) enum Response {
     StoreSuccessResponse {},
 
     #[display(fmt = "StoreRedirectResponse {{ }}")]
-    StoreRedirectResponse { leader_address: String }, // TODO: pass the leader ip/id
+    StoreRedirectResponse { leader_address: String },
 }
 
 impl Response {
@@ -61,7 +61,8 @@ impl Into<Bytes> for Response {
             }
             StoreRedirectResponse { leader_address } => {
                 bytes.put_u16_le(STORE_REDIRECT_RESPONSE_MESSAGE_ID);
-                bytes.put(leader_address.as_ref());
+                bytes.put_u32_le(leader_address.len().try_into().expect("Unable to convert"));
+                bytes.put(leader_address.as_bytes());
             }
         }
         bytes.freeze()

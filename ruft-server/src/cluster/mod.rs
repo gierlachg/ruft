@@ -47,7 +47,7 @@ impl PhysicalCluster {
         let egresses = join_all(futures)
             .await
             .into_iter()
-            .map(|egress| (egress.id(), egress))
+            .map(|egress| (egress.endpoint().id(), egress))
             .collect::<HashMap<Id, Egress>>();
 
         let ingress = Ingress::bind(local_endpoint).await?;
@@ -62,11 +62,13 @@ impl Cluster for PhysicalCluster {
         self.egresses.keys().map(|id| id.clone()).collect()
     }
 
+    // TODO:
     fn endpoint(&self, id: &Id) -> &Endpoint {
-        self.egresses
-            .get(id)
-            .unwrap() // TODO:
-            .endpoint()
+        if *id == self.ingress.endpoint().id() {
+            &self.ingress.endpoint()
+        } else {
+            self.egresses.get(id).unwrap().endpoint()
+        }
     }
 
     fn size(&self) -> usize {

@@ -11,7 +11,7 @@ use tokio::time::Duration;
 
 use crate::cluster::protocol::Message;
 use crate::cluster::tcp::{Listener, Reader, Writer};
-use crate::{Endpoint, Id};
+use crate::Endpoint;
 
 // TODO: configurable
 const RECONNECT_INTERVAL_MILLIS: u64 = 100;
@@ -34,10 +34,6 @@ impl Egress {
             }
         };
         Egress { endpoint, writer }
-    }
-
-    pub(super) fn id(&self) -> Id {
-        self.endpoint.id()
     }
 
     pub(super) fn endpoint(&self) -> &Endpoint {
@@ -123,6 +119,10 @@ impl Ingress {
                 }
             }
         });
+    }
+
+    pub(super) fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
     }
 
     pub(super) async fn next(&mut self) -> Option<Message> {

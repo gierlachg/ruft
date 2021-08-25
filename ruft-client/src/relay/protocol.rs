@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::net::SocketAddr;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use derive_more::Display;
@@ -22,7 +23,7 @@ impl Request {
     }
 }
 
-impl Into<Bytes> for Request {
+impl Into<Bytes> for &Request {
     fn into(self) -> Bytes {
         let mut bytes = BytesMut::new();
         match self {
@@ -42,7 +43,7 @@ pub(crate) enum Response {
     StoreSuccessResponse {},
 
     #[display(fmt = "StoreRedirectResponse {{ }}")]
-    StoreRedirectResponse { leader_address: String }, // TODO: pass the leader ip/id
+    StoreRedirectResponse { leader_address: SocketAddr },
 }
 
 // TODO: TryFrom
@@ -52,9 +53,11 @@ impl From<Bytes> for Response {
         match r#type {
             STORE_SUCCESS_RESPONSE_MESSAGE_ID => StoreSuccessResponse {},
             STORE_REDIRECT_RESPONSE_MESSAGE_ID => {
+                let len = bytes.get_u32_le().try_into().expect("Unable to convert");
+                let payload = bytes.split_to(len);
                 StoreRedirectResponse {
-                    leader_address: String::from_utf8_lossy(&bytes[..]).into(),
-                } // TODO
+                    leader_address: (String::from_utf8_lossy(payload.as_ref()).parse().unwrap()), // TODO:
+                }
             }
             r#type => panic!("Unknown message type: {}", r#type),
         }

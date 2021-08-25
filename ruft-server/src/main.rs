@@ -11,24 +11,31 @@ use tokio;
 use ruft_server::RuftServer;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const CLIENT_ENDPOINT: &str = "client endpoint";
 const LOCAL_ENDPOINT: &str = "local endpoint";
-const REMOTE_ENDPOINTS: &str = "remote endpoint";
+const LOCAL_CLIENT_ENDPOINT: &str = "local client endpoint";
+const REMOTE_ENDPOINTS: &str = "remote endpoints";
+const REMOTE_CLIENT_ENDPOINTS: &str = "remote client endpoints";
 const LOGGING_CONFIGURATION_FILE_NAME: &str = "log4rs.yml";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let arguments = parse_arguments();
-    let client_endpoint = arguments
-        .value_of(CLIENT_ENDPOINT)
-        .map(|client_endpoint| parse_address(client_endpoint))
-        .unwrap();
     let local_endpoint = arguments
         .value_of(LOCAL_ENDPOINT)
         .map(|local_endpoint| parse_address(local_endpoint))
         .unwrap();
+    let local_client_endpoint = arguments
+        .value_of(LOCAL_CLIENT_ENDPOINT)
+        .map(|client_endpoint| parse_address(client_endpoint))
+        .unwrap();
     let remote_endpoints = arguments
         .value_of(REMOTE_ENDPOINTS)
+        .into_iter()
+        .flat_map(|remote_endpoints| remote_endpoints.split(','))
+        .map(|remote_endpoint| parse_address(remote_endpoint))
+        .collect::<Vec<_>>();
+    let remote_client_endpoints = arguments
+        .value_of(REMOTE_CLIENT_ENDPOINTS)
         .into_iter()
         .flat_map(|remote_endpoints| remote_endpoints.split(','))
         .map(|remote_endpoint| parse_address(remote_endpoint))
@@ -37,7 +44,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logging();
 
     info!("Initializing Ruft server (version: {})", VERSION);
-    RuftServer::run(client_endpoint, local_endpoint, remote_endpoints).await?;
+    RuftServer::run(local_endpoint, local_client_endpoint, remote_endpoints, remote_client_endpoints).await?;
     info!("Ruft server shut down.");
     Ok(())
 }
@@ -45,14 +52,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 fn parse_arguments() -> ArgMatches<'static> {
     App::new(env!("CARGO_PKG_DESCRIPTION"))
         .version(VERSION)
-        .arg(
-            Arg::with_name(CLIENT_ENDPOINT)
-                .required(true)
-                .short("ce")
-                .long("client-endpoint")
-                .takes_value(true)
-                .help("Local endpoint clients connect to"),
-        )
         .arg(
             Arg::with_name(LOCAL_ENDPOINT)
                 .required(true)
@@ -62,12 +61,28 @@ fn parse_arguments() -> ArgMatches<'static> {
                 .help("Local endpoint server should bind to"),
         )
         .arg(
+            Arg::with_name(LOCAL_CLIENT_ENDPOINT)
+                .required(true)
+                .short("ce")
+                .long("local-client-endpoint")
+                .takes_value(true)
+                .help("Local client endpoint clients connect to"),
+        )
+        .arg(
             Arg::with_name(REMOTE_ENDPOINTS)
                 .required(true)
                 .short("re")
                 .long("remote-endpoints")
                 .takes_value(true)
                 .help("Comma separated list of remote endpoints"),
+        )
+        .arg(
+            Arg::with_name(REMOTE_CLIENT_ENDPOINTS)
+                .required(true)
+                .short("rce")
+                .long("remote-client-endpoints")
+                .takes_value(true)
+                .help("Comma separated list of remote client endpoints"),
         )
         .get_matches()
 }

@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 
+use bytes::Bytes;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{self, Duration};
@@ -8,13 +9,13 @@ use tokio::time::{self, Duration};
 use crate::relay::protocol::Request;
 use crate::relay::protocol::Response::{self, StoreRedirectResponse, StoreSuccessResponse};
 use crate::relay::tcp::Connection;
-use crate::relay::ConnectionState::{BROKEN, CLOSED};
+use crate::relay::ConnectionState::{BROKEN, CLOSED, REDIRECT};
 use crate::{Result, RuftClientError};
 
 pub(crate) mod protocol;
 mod tcp;
 
-const MAX_NUMBER_OF_IN_FLIGHT_MESSAGES: usize = 1024;
+const MAX_NUMBER_OF_IN_FLIGHT_REQUESTS: usize = 1024;
 
 #[derive(Clone)]
 pub(super) struct Relay {
@@ -31,7 +32,7 @@ impl Relay {
         .unwrap_or(None)
         .ok_or(RuftClientError::generic_failure("Unable to connect to the cluster"))?;
 
-        let (tx, rx) = mpsc::channel(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES);
+        let (tx, rx) = mpsc::channel(MAX_NUMBER_OF_IN_FLIGHT_REQUESTS);
         tokio::spawn(async move { Self::run(rx, connection, endpoints).await });
         Ok(Relay { requests: tx })
     }
@@ -41,17 +42,19 @@ impl Relay {
         connection: Connection,
         endpoints: Vec<SocketAddr>,
     ) {
+        let mut exchanges = Exchanges(VecDeque::with_capacity(MAX_NUMBER_OF_IN_FLIGHT_REQUESTS));
         let mut connection = connection;
-        let mut responders = Responders(VecDeque::with_capacity(MAX_NUMBER_OF_IN_FLIGHT_MESSAGES));
+        let mut endpoints = endpoints;
 
         loop {
-            match Self::service(&mut requests, connection, &mut responders).await {
-                BROKEN => responders.fail_all(),
+            endpoints = match Self::service(&mut requests, connection, &mut exchanges).await {
+                REDIRECT(leader_address) => vec![leader_address], // TODO: ensure on the list ???
+                BROKEN => endpoints,
                 CLOSED => break,
-            }
+            };
 
-            match Self::reconnect(&mut requests, &endpoints).await {
-                Some(s) => connection = s,
+            connection = match Self::reconnect(&mut requests, &endpoints).await {
+                Some(connection) => connection,
                 None => break,
             }
         }
@@ -60,14 +63,20 @@ impl Relay {
     async fn service(
         requests: &mut mpsc::Receiver<(Request, Responder)>,
         mut connection: Connection,
-        responders: &mut Responders,
+        exchanges: &mut Exchanges,
     ) -> ConnectionState {
+        for request in exchanges.requests() {
+            if let Err(_) = connection.write(request).await {
+                return BROKEN;
+            }
+        }
+
         loop {
             tokio::select! {
                 result = requests.recv() => match result {
                     Some((request, responder)) => {
-                        responders.push(responder);
-                        if let Err(_) = connection.write(request.into()).await {
+                        let request = exchanges.enqueue(request, responder);
+                        if let Err(_) = connection.write(request).await {
                             return BROKEN
                         }
                     }
@@ -75,11 +84,8 @@ impl Relay {
                 },
                 result = connection.read() =>  match result.and_then(Result::ok).map(Response::from) {
                     Some(response) => match response {
-                        StoreSuccessResponse {} =>  responders.pop().respond_with_success(),
-                        StoreRedirectResponse {leader_address: leader_address} =>  {
-                            println!("redirect {}", leader_address);
-                            responders.pop().respond_with_error(""); // TODO: connect to the leader
-                        }
+                        StoreSuccessResponse {} =>  exchanges.dequeue().respond_with_success(),
+                        StoreRedirectResponse {leader_address} => return REDIRECT(leader_address)
                     },
                     None => return BROKEN
                 }
@@ -113,31 +119,43 @@ impl Relay {
         self.requests
             .send((request, Responder(tx)))
             .await
-            .map_err(|_| RuftClientError::generic_failure("Slow down cowboy!"))?;
+            .map_err(|_| RuftClientError::generic_failure("Slow down cowboy!"))?; // TODO: drop latest ???
         rx.await.expect("Error occurred while receiving response")
     }
 }
 
 enum ConnectionState {
+    REDIRECT(SocketAddr),
     BROKEN,
     CLOSED,
 }
 
-struct Responders(VecDeque<Responder>);
+struct Exchanges(VecDeque<Exchange>);
 
-impl Responders {
-    fn push(&mut self, responder: Responder) {
-        self.0.push_front(responder)
+impl Exchanges {
+    fn enqueue(&mut self, request: Request, responder: Responder) -> Bytes {
+        self.0.push_front(Exchange(request.into(), responder));
+        self.0.back().unwrap().request()
     }
 
-    fn pop(&mut self) -> Responder {
-        self.0.pop_front().expect("No responder!")
+    fn dequeue(&mut self) -> Responder {
+        self.0.pop_front().expect("No exchange!").responder()
     }
 
-    fn fail_all(&mut self) {
-        self.0
-            .drain(..)
-            .for_each(|responder| responder.respond_with_error("Error occurred while communicating with the cluster"))
+    fn requests<'a>(&'a self) -> impl Iterator<Item = Bytes> + 'a {
+        self.0.iter().map(|exchange| exchange.request())
+    }
+}
+
+struct Exchange(Request, Responder);
+
+impl Exchange {
+    fn request(&self) -> Bytes {
+        (&self.0).into() // TODO: store Bytes ???
+    }
+
+    fn responder(self) -> Responder {
+        self.1
     }
 }
 

@@ -13,15 +13,24 @@ async fn test_client_connection_timeout() {
     RuftClient::new(vec![address()], 1).await.unwrap();
 }
 
-#[ignore]
 #[tokio::test(flavor = "current_thread")]
 async fn test_successful_store() {
+    let endpoints = addresses(2);
     let client_endpoints = addresses(2);
-    let local_endpoints = addresses(2);
 
     // start 2 node cluster
-    spawn_node(client_endpoints[0], local_endpoints[0], vec![local_endpoints[1]]);
-    spawn_node(client_endpoints[1], local_endpoints[1], vec![local_endpoints[0]]);
+    spawn_node(
+        endpoints[0],
+        client_endpoints[0],
+        vec![endpoints[1]],
+        vec![client_endpoints[1]],
+    );
+    spawn_node(
+        endpoints[1],
+        client_endpoints[1],
+        vec![endpoints[0]],
+        vec![client_endpoints[0]],
+    );
 
     // start client
     let mut client = RuftClient::new(vec![client_endpoints[0]], 5_000).await.unwrap();
@@ -34,11 +43,11 @@ async fn test_successful_store() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_successful_store_single_node() {
-    let client_endpoint = address();
     let local_endpoint = address();
+    let client_endpoint = address();
 
     // start single node cluster
-    spawn_node(client_endpoint, local_endpoint, vec![]);
+    spawn_node(local_endpoint, client_endpoint, vec![], vec![]);
 
     // start client
     let mut client = RuftClient::new(vec![client_endpoint], 5_000).await.unwrap();
@@ -49,8 +58,21 @@ async fn test_successful_store_single_node() {
     assert!(result.is_ok());
 }
 
-fn spawn_node(client_endpoint: SocketAddr, local_endpoint: SocketAddr, remote_endpoints: Vec<SocketAddr>) {
-    tokio::spawn(async move { RuftServer::run(client_endpoint, local_endpoint, remote_endpoints).await });
+fn spawn_node(
+    local_endpoint: SocketAddr,
+    local_client_endpoint: SocketAddr,
+    remote_endpoints: Vec<SocketAddr>,
+    remote_client_endpoints: Vec<SocketAddr>,
+) {
+    tokio::spawn(async move {
+        RuftServer::run(
+            local_endpoint,
+            local_client_endpoint,
+            remote_endpoints,
+            remote_client_endpoints,
+        )
+        .await
+    });
 }
 
 fn addresses(count: usize) -> Vec<SocketAddr> {

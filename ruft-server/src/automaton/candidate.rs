@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
@@ -95,10 +97,11 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     }
 
     fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
+        // TODO: strictly higher ?
         if term >= self.term {
-            // TODO: strictly higher ?
-            self.queue
-                .redirect(&self.cluster.endpoint(&leader_id).address.to_string()); // TODO
+            // TODO:
+            self.queue.redirect(self.cluster.endpoint(&leader_id).client_address());
+
             Some(State::follower(self.id, term, Some(leader_id)))
         } else {
             None
@@ -111,7 +114,10 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                 .send(&candidate_id, Message::vote_response(true, term))
                 .await;
 
-            // TODO: redirect
+            // TODO:
+            self.queue
+                .redirect(self.cluster.endpoint(&candidate_id).client_address());
+
             Some(State::follower(self.id, term, None)) // TODO: figure out leader id
         } else {
             None
@@ -120,13 +126,18 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 
     fn on_vote_response(&mut self, vote_granted: bool, term: u64) -> Option<State> {
         if term > self.term {
-            // TODO: redirect
+            // TODO:
+            self.queue.redirect(self.cluster.endpoint(&self.id).client_address());
+
             Some(State::follower(self.id, term, None)) // TODO: figure out leader id
         } else if term == self.term && vote_granted {
             self.granted_votes += 1;
             if self.granted_votes > self.cluster.size() / 2 {
-                // TODO: dedup with replication
-                // TODO: pass pending
+                // TODO: cluster size: dedup with replication
+
+                // TODO:
+                self.queue.redirect(self.cluster.endpoint(&self.id).client_address());
+
                 Some(State::leader(self.id, self.term))
             } else {
                 None
@@ -144,6 +155,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 }
 
 // TODO: shared...
+#[derive(Clone)]
 struct Queue {
     responders: Vec<mpsc::UnboundedSender<Response>>,
 }
@@ -157,11 +169,11 @@ impl Queue {
         self.responders.push(responder);
     }
 
-    fn redirect(&mut self, leader_address: &str) {
+    fn redirect(&mut self, address: &SocketAddr) {
         while !self.responders.is_empty() {
             self.responders
                 .remove(0)
-                .send(Response::store_redirect_response(leader_address))
+                .send(Response::store_redirect_response(&address.to_string()))
                 .expect("This is unexpected!");
         }
     }
@@ -192,10 +204,12 @@ mod tests {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        cluster
-            .expect_endpoint()
-            .with(eq(PEER_ID))
-            .return_const(Endpoint::new(PEER_ID, "127.0.0.1:8080".parse().unwrap())); // TODO
+        // TODO:
+        cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
+            PEER_ID,
+            "127.0.0.1:8080".parse().unwrap(),
+            "127.0.0.1:8081".parse().unwrap(),
+        ));
 
         let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
 
@@ -218,10 +232,12 @@ mod tests {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
 
-        cluster
-            .expect_endpoint()
-            .with(eq(PEER_ID))
-            .return_const(Endpoint::new(PEER_ID, "127.0.0.1:8080".parse().unwrap())); // TODO
+        // TODO:
+        cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
+            PEER_ID,
+            "127.0.0.1:8080".parse().unwrap(),
+            "127.0.0.1:8081".parse().unwrap(),
+        ));
 
         let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
 
@@ -258,6 +274,12 @@ mod tests {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
 
+        // TODO:
+        cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
+            PEER_ID,
+            "127.0.0.1:8080".parse().unwrap(),
+            "127.0.0.1:8081".parse().unwrap(),
+        ));
         cluster
             .expect_send()
             .with(eq(PEER_ID), eq(Message::vote_response(true, TERM + 1)))
@@ -312,6 +334,13 @@ mod tests {
         // given
         let (mut storage, mut cluster, mut relay) = infrastructure();
 
+        // TODO:
+        cluster.expect_endpoint().with(eq(ID)).return_const(Endpoint::new(
+            ID,
+            "127.0.0.1:8080".parse().unwrap(),
+            "127.0.0.1:8081".parse().unwrap(),
+        ));
+
         let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
 
         // when
@@ -364,6 +393,12 @@ mod tests {
         let (mut storage, mut cluster, mut relay) = infrastructure();
 
         cluster.expect_size().times(2).return_const(3usize);
+        // TODO:
+        cluster.expect_endpoint().with(eq(ID)).return_const(Endpoint::new(
+            ID,
+            "127.0.0.1:8080".parse().unwrap(),
+            "127.0.0.1:8081".parse().unwrap(),
+        ));
 
         let mut candidate = candidate(&mut storage, &mut cluster, &mut relay);
         candidate.on_vote_response(true, TERM);

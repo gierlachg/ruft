@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use bytes::Bytes;
 use log::info;
 use tokio::sync::mpsc;
@@ -53,6 +55,9 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         loop {
             tokio::select! {
                 _ = time::sleep(self.election_timeout) => {
+                    // TODO:
+                    self.queue.redirect(self.cluster.endpoint(&self.id).client_address());
+
                     return Some(State::CANDIDATE { id: self.id, term: self.term })
                 },
                 message = self.cluster.messages() => match message {
@@ -87,9 +92,9 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         }
         if term >= self.term {
             self.leader_id = Some(leader_id);
-            self.queue
-                .redirect(&self.cluster.endpoint(&leader_id).address.to_string());
-            // TODO
+
+            // TODO:
+            self.queue.redirect(self.cluster.endpoint(&leader_id).client_address());
         }
 
         match self.storage.insert(&preceding_position, term, entries).await {
@@ -129,7 +134,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
             StoreRequest { payload: _ } => match self.leader_id {
                 Some(ref leader_id) => responder
                     .send(Response::store_redirect_response(
-                        &self.cluster.endpoint(leader_id).address.to_string(), // TODO:
+                        &self.cluster.endpoint(leader_id).client_address().to_string(), // TODO:
                     ))
                     .expect("This is unexpected!"),
                 None => self.queue.enqueue(responder),
@@ -139,6 +144,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
 }
 
 // TODO: shared...
+#[derive(Clone)]
 struct Queue {
     responders: Vec<mpsc::UnboundedSender<Response>>,
 }
@@ -152,11 +158,11 @@ impl Queue {
         self.responders.push(responder);
     }
 
-    fn redirect(&mut self, leader_address: &str) {
+    fn redirect(&mut self, address: &SocketAddr) {
         while !self.responders.is_empty() {
             self.responders
                 .remove(0)
-                .send(Response::store_redirect_response(leader_address))
+                .send(Response::store_redirect_response(&address.to_string()))
                 .expect("This is unexpected!");
         }
     }
@@ -195,10 +201,12 @@ mod tests {
             .with(eq(position), eq(TERM + 1), eq(entries.clone()))
             .returning(|position, _, _| Ok(position.clone()));
 
-        cluster
-            .expect_endpoint()
-            .with(eq(PEER_ID))
-            .return_const(Endpoint::new(PEER_ID, "127.0.0.1:8080".parse().unwrap())); // TODO
+        // TODO:
+        cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
+            PEER_ID,
+            "127.0.0.1:8080".parse().unwrap(),
+            "127.0.0.1:8081".parse().unwrap(),
+        ));
         cluster
             .expect_send()
             .with(eq(PEER_ID), eq(Message::append_response(ID, true, position)))
@@ -227,10 +235,12 @@ mod tests {
             .with(eq(position), eq(TERM + 1), eq(entries.clone()))
             .returning(|position, _, _| Err(position.clone()));
 
-        cluster
-            .expect_endpoint()
-            .with(eq(PEER_ID))
-            .return_const(Endpoint::new(PEER_ID, "127.0.0.1:8080".parse().unwrap())); // TODO
+        // TODO:
+        cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
+            PEER_ID,
+            "127.0.0.1:8080".parse().unwrap(),
+            "127.0.0.1:8081".parse().unwrap(),
+        ));
         cluster
             .expect_send()
             .with(eq(PEER_ID), eq(Message::append_response(ID, false, position)))

@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::net::SocketAddr;
 
 use log::info;
 use rand::Rng;
@@ -26,7 +25,6 @@ pub(super) struct Automaton {}
 
 impl Automaton {
     pub(super) async fn run(
-        client_endpoint: SocketAddr,
         local_endpoint: Endpoint,
         remote_endpoints: Vec<Endpoint>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -39,10 +37,10 @@ impl Automaton {
         let mut storage = VolatileStorage::init();
         info!("Using {} storage", &storage);
 
-        let mut cluster = PhysicalCluster::init(local_endpoint, remote_endpoints).await?;
+        let mut cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints).await?;
         info!("{}", &cluster);
 
-        let mut relay = PhysicalRelay::init(client_endpoint).await?;
+        let mut relay = PhysicalRelay::init(local_endpoint.client_address().clone()).await?;
         info!("Listening for client connections on {}", &relay);
 
         let mut state = if cluster.size() == 1 {
