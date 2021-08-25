@@ -44,7 +44,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logging();
 
     info!("Initializing Ruft server (version: {})", VERSION);
-    RuftServer::run(local_endpoint, local_client_endpoint, remote_endpoints, remote_client_endpoints).await?;
+    RuftServer::run(
+        local_endpoint,
+        local_client_endpoint,
+        remote_endpoints,
+        remote_client_endpoints,
+    )
+    .await?;
     info!("Ruft server shut down.");
     Ok(())
 }
@@ -55,32 +61,32 @@ fn parse_arguments() -> ArgMatches<'static> {
         .arg(
             Arg::with_name(LOCAL_ENDPOINT)
                 .required(true)
-                .short("le")
                 .long("local-endpoint")
+                .alias("le")
                 .takes_value(true)
                 .help("Local endpoint server should bind to"),
         )
         .arg(
             Arg::with_name(LOCAL_CLIENT_ENDPOINT)
                 .required(true)
-                .short("ce")
                 .long("local-client-endpoint")
+                .alias("lce")
                 .takes_value(true)
                 .help("Local client endpoint clients connect to"),
         )
         .arg(
             Arg::with_name(REMOTE_ENDPOINTS)
                 .required(true)
-                .short("re")
                 .long("remote-endpoints")
+                .alias("re")
                 .takes_value(true)
                 .help("Comma separated list of remote endpoints"),
         )
         .arg(
             Arg::with_name(REMOTE_CLIENT_ENDPOINTS)
                 .required(true)
-                .short("rce")
                 .long("remote-client-endpoints")
+                .alias("rce")
                 .takes_value(true)
                 .help("Comma separated list of remote client endpoints"),
         )
