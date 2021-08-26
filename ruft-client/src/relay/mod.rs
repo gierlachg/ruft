@@ -50,7 +50,7 @@ impl Relay {
         loop {
             endpoints = match Self::service(&mut requests.1, &mut connection, &mut exchanges).await {
                 REDIRECT(leader_address) => {
-                    Self::drain(connection, &mut exchanges, requests.0.clone());
+                    Self::drain(connection, exchanges.split_off(1), requests.0.clone());
                     vec![leader_address] // TODO: ensure on the list ???
                 }
                 BROKEN => {
@@ -90,19 +90,15 @@ impl Relay {
                 result = connection.read() =>  match result.and_then(Result::ok).map(Response::from) {
                     Some(response) => match response {
                         StoreSuccessResponse {} =>  exchanges.dequeue().responder().respond_with_success(),
-                        StoreRedirectResponse {leader_address} => {
-                            let Exchange (request, responder) = exchanges.dequeue();
-                            let exchange = exchanges.enqueue(request, responder);
-                            if let Err(_) = exchange.write(connection).await {
-                                return BROKEN
-                            }
-
-                            if let Some(leader_address) = leader_address {
-                                if &leader_address != connection.endpoint() {
-                                    return REDIRECT(leader_address)
+                        StoreRedirectResponse {leader_address} => match leader_address {
+                            Some(leader_address) if &leader_address != connection.endpoint() => return REDIRECT(leader_address),
+                            _ => {
+                                let exchange = exchanges.requeue();
+                                if let Err(_) = exchange.write(connection).await {
+                                    return BROKEN
                                 }
                             }
-                        },
+                        }
                     },
                     None => return BROKEN
                 }
@@ -136,10 +132,9 @@ impl Relay {
 
     fn drain(
         mut connection: Connection,
-        exchanges: &mut Exchanges,
+        mut exchanges: Exchanges,
         requests: mpsc::UnboundedSender<(Request, Responder)>,
     ) {
-        let mut exchanges = exchanges.drain_to();
         tokio::spawn(async move {
             // TODO: stop on shutdown ??? holding onto requests prevents run() from stopping
             loop {
@@ -175,6 +170,7 @@ enum ConnectionState {
     CLOSED,
 }
 
+// TODO: limit size ???
 struct Exchanges(VecDeque<Exchange>);
 
 impl Exchanges {
@@ -191,14 +187,17 @@ impl Exchanges {
         self.0.pop_back().expect("No exchange!")
     }
 
+    fn requeue(&mut self) -> &Exchange {
+        let Exchange(request, responder) = self.dequeue();
+        self.enqueue(request, responder)
+    }
+
     fn drain(&mut self) -> impl Iterator<Item = Exchange> + '_ {
         self.0.drain(..)
     }
 
-    fn drain_to(&mut self) -> Exchanges {
-        let mut exchanges = Exchanges::new();
-        self.drain().for_each(|exchange| exchanges.0.push_front(exchange));
-        exchanges
+    fn split_off(&mut self, at: usize) -> Exchanges {
+        Exchanges(self.0.split_off(at))
     }
 
     fn fail(&mut self) {
