@@ -4,7 +4,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use tokio::time::{self, Duration};
 
-use crate::automaton::{Exchange, Exchanges, Responder, State};
+use crate::automaton::{Responder, State};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
@@ -21,7 +21,6 @@ pub(super) struct Leader<'a, S: Storage, C: Cluster, R: Relay> {
     storage: &'a mut S,
     cluster: &'a mut C,
     relay: &'a mut R,
-    exchanges: &'a mut Exchanges,
 
     replicator: Replicator,
 
@@ -35,7 +34,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         storage: &'a mut S,
         cluster: &'a mut C,
         relay: &'a mut R,
-        exchanges: &'a mut Exchanges,
         heartbeat_interval: Duration,
     ) -> Self {
         let replicator = Replicator::new(cluster, Position::of(term, 0));
@@ -46,7 +44,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             storage,
             cluster,
             relay,
-            exchanges,
             replicator,
             heartbeat_interval,
         }
@@ -57,11 +54,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             self.storage.extend(self.term, vec![noop_message()]).await,
             Position::of(self.term, 0)
         );
-
-        while let Some(exchange) = self.exchanges.dequeue() {
-            let Exchange(request, responder) = exchange;
-            self.on_client_request(request, responder).await;
-        }
 
         let mut ticker = time::interval(self.heartbeat_interval);
         loop {
@@ -291,7 +283,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_time_comes_and_was_not_sent_recently_heartbeat_is_sent() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         storage.expect_head().return_const(POSITION.clone());
 
@@ -305,7 +297,7 @@ mod tests {
             )
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
         //leader.trackers.get_mut(&PEER_ID).unwrap().clear_next_position();
 
         // when
@@ -317,12 +309,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_time_comes_but_was_sent_recently_skip() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         cluster.expect_size().return_const(3usize);
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
         //leader.trackers.get_mut(&PEER_ID).unwrap().mark_sent_recently();
 
         // when
@@ -333,7 +325,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_time_comes_last_non_replicated_entry_is_sent() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         storage.expect_at().returning(|_| Some((&PRECEDING_POSITION, &ENTRY)));
 
@@ -352,7 +344,7 @@ mod tests {
             )
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         // then
@@ -362,12 +354,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_append_request_term_greater_then_switch_to_follower() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         cluster.expect_size().return_const(3usize);
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_request(PEER_ID, TERM + 1).await;
@@ -387,12 +379,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_append_request_term_equal_then_panics() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         cluster.expect_size().return_const(3usize);
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         // then
@@ -402,7 +394,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_append_request_term_less_then_respond() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         storage.expect_head().return_const(POSITION.clone());
 
@@ -413,7 +405,7 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::append_response(ID, true, POSITION.clone())))
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_request(PEER_ID, TERM - 1).await;
@@ -425,12 +417,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_append_response_term_greater_then_switch_to_follower() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         cluster.expect_size().return_const(3usize);
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader
@@ -451,14 +443,14 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_append_response_successful_and_position_latest_then_update() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         storage.expect_head().return_const(POSITION.clone());
 
         cluster.expect_size().return_const(3usize);
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_response(PEER_ID, true, POSITION.clone()).await;
@@ -473,7 +465,7 @@ mod tests {
         // given
         let preceding_position = Position::of(TERM - 1, 0);
 
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         storage.expect_head().return_const(POSITION.clone());
         storage.expect_next().returning(|_| Some((&POSITION, &ENTRY)));
@@ -493,7 +485,7 @@ mod tests {
             )
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_response(PEER_ID, true, preceding_position).await;
@@ -509,7 +501,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_append_response_failed_then_replicate_and_update() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         storage.expect_at().returning(|_| Some((&PRECEDING_POSITION, &ENTRY)));
 
@@ -528,7 +520,7 @@ mod tests {
             )
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_append_response(PEER_ID, false, POSITION.clone()).await;
@@ -544,12 +536,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_greater_then_switch_to_follower() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         cluster.expect_size().return_const(3usize);
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_vote_request(PEER_ID, TERM + 1).await;
@@ -568,12 +560,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_equal_then_ignore() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         cluster.expect_size().return_const(3usize);
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_vote_request(PEER_ID, TERM).await;
@@ -585,7 +577,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn when_vote_request_term_less_then_respond() {
         // given
-        let (mut storage, mut cluster, mut relay, mut exchanges) = infrastructure();
+        let (mut storage, mut cluster, mut relay) = infrastructure();
 
         cluster.expect_size().return_const(3usize);
         cluster.expect_member_ids().return_const(vec![PEER_ID]);
@@ -594,7 +586,7 @@ mod tests {
             .with(eq(PEER_ID), eq(Message::vote_response(false, TERM)))
             .return_const(());
 
-        let mut leader = leader(&mut storage, &mut cluster, &mut relay, &mut exchanges);
+        let mut leader = leader(&mut storage, &mut cluster, &mut relay);
 
         // when
         let state = leader.on_vote_request(PEER_ID, TERM - 1).await;
@@ -603,22 +595,16 @@ mod tests {
         assert_eq!(state, None);
     }
 
-    fn infrastructure() -> (MockStorage, MockCluster, MockRelay, Exchanges) {
-        (
-            MockStorage::new(),
-            MockCluster::new(),
-            MockRelay::new(),
-            Exchanges::new(),
-        )
+    fn infrastructure() -> (MockStorage, MockCluster, MockRelay) {
+        (MockStorage::new(), MockCluster::new(), MockRelay::new())
     }
 
     fn leader<'a>(
         storage: &'a mut MockStorage,
         cluster: &'a mut MockCluster,
         relay: &'a mut MockRelay,
-        exchanges: &'a mut Exchanges,
     ) -> Leader<'a, MockStorage, MockCluster, MockRelay> {
-        Leader::init(ID, TERM, storage, cluster, relay, exchanges, Duration::from_secs(1))
+        Leader::init(ID, TERM, storage, cluster, relay, Duration::from_secs(1))
     }
 
     mock! {

@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::error::Error;
 use std::net::SocketAddr;
 
@@ -13,7 +12,7 @@ use crate::automaton::follower::Follower;
 use crate::automaton::leader::Leader;
 use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER};
 use crate::cluster::{Cluster, PhysicalCluster};
-use crate::relay::protocol::{Request, Response};
+use crate::relay::protocol::Response;
 use crate::relay::PhysicalRelay;
 use crate::storage::volatile::VolatileStorage;
 use crate::{Endpoint, Id};
@@ -48,8 +47,6 @@ impl Automaton {
         let mut relay = PhysicalRelay::init(local_endpoint.client_address().clone()).await?;
         info!("Listening for client connections on {}", &relay);
 
-        let mut exchanges = Exchanges::new();
-
         let mut state = if cluster.size() == 1 {
             State::LEADER { id, term: 1 }
         } else {
@@ -70,7 +67,6 @@ impl Automaton {
                         &mut storage,
                         &mut cluster,
                         &mut relay,
-                        &mut exchanges,
                         leader_id,
                         election_timeout,
                     )
@@ -78,30 +74,14 @@ impl Automaton {
                     .await
                 }
                 LEADER { id, term } => {
-                    Leader::init(
-                        id,
-                        term,
-                        &mut storage,
-                        &mut cluster,
-                        &mut relay,
-                        &mut exchanges,
-                        heartbeat_interval,
-                    )
-                    .run()
-                    .await
+                    Leader::init(id, term, &mut storage, &mut cluster, &mut relay, heartbeat_interval)
+                        .run()
+                        .await
                 }
                 CANDIDATE { id, term } => {
-                    Candidate::init(
-                        id,
-                        term,
-                        &mut storage,
-                        &mut cluster,
-                        &mut relay,
-                        &mut exchanges,
-                        election_timeout,
-                    )
-                    .run()
-                    .await
+                    Candidate::init(id, term, &mut storage, &mut cluster, &mut relay, election_timeout)
+                        .run()
+                        .await
                 }
             } {
                 Some(state) => state,
@@ -133,42 +113,14 @@ impl State {
     }
 }
 
-struct Exchanges(VecDeque<Exchange>);
-
-impl Exchanges {
-    fn new() -> Self {
-        Exchanges(VecDeque::new()) // TODO: capacity, limit size
-    }
-
-    fn enqueue(&mut self, request: Request, responder: Responder) {
-        self.0.push_front(Exchange(request, responder))
-    }
-
-    fn dequeue(&mut self) -> Option<Exchange> {
-        self.0.pop_back()
-    }
-
-    fn respond_with_redirect(&mut self, address: &SocketAddr) {
-        self.0
-            .drain(..)
-            .for_each(|exchange| exchange.1.respond_with_redirect(address))
-    }
-}
-
-struct Exchange(Request, Responder);
-
 struct Responder(mpsc::UnboundedSender<Response>);
 
 impl Responder {
     fn respond_with_success(self) {
-        self.0
-            .send(Response::store_success_response())
-            .expect("This is unexpected!")
+        self.0.send(Response::store_success_response()).unwrap_or(())
     }
 
-    fn respond_with_redirect(&self, address: &SocketAddr) {
-        self.0
-            .send(Response::store_redirect_response(*address))
-            .expect("This is unexpected!")
+    fn respond_with_redirect(&self, address: Option<SocketAddr>) {
+        self.0.send(Response::store_redirect_response(address)).unwrap_or(())
     }
 }

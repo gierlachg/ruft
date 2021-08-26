@@ -7,7 +7,7 @@ use derive_more::Display;
 use crate::relay::protocol::Request::StoreRequest;
 use crate::relay::protocol::Response::{StoreRedirectResponse, StoreSuccessResponse};
 
-const STORE_REQUEST_MESSAGE_ID: u16 = 1;
+const STORE_REQUEST_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_MESSAGE_ID: u16 = 2;
 const STORE_REDIRECT_RESPONSE_MESSAGE_ID: u16 = 3;
 
@@ -22,7 +22,7 @@ impl From<Bytes> for Request {
     fn from(mut bytes: Bytes) -> Self {
         let r#type = bytes.get_u16_le();
         match r#type {
-            STORE_REQUEST_MESSAGE_ID => {
+            STORE_REQUEST_ID => {
                 let len = bytes.get_u32_le().try_into().expect("Unable to convert");
                 let payload = bytes.split_to(len);
                 StoreRequest { payload }
@@ -32,13 +32,13 @@ impl From<Bytes> for Request {
     }
 }
 
-#[derive(PartialEq, Display, Debug)]
+#[derive(PartialEq, Clone, Display, Debug)]
 pub(crate) enum Response {
     #[display(fmt = "StoreSuccessResponse {{ }}")]
     StoreSuccessResponse {},
 
-    #[display(fmt = "StoreRedirectResponse {{ }}")]
-    StoreRedirectResponse { leader_address: SocketAddr },
+    #[display(fmt = "StoreRedirectResponse {{ leader_address: {:?} }}", leader_address)]
+    StoreRedirectResponse { leader_address: Option<SocketAddr> },
 }
 
 impl Response {
@@ -46,7 +46,7 @@ impl Response {
         StoreSuccessResponse {}
     }
 
-    pub(crate) fn store_redirect_response(leader_address: SocketAddr) -> Self {
+    pub(crate) fn store_redirect_response(leader_address: Option<SocketAddr>) -> Self {
         StoreRedirectResponse { leader_address }
     }
 }
@@ -59,11 +59,16 @@ impl Into<Bytes> for Response {
                 bytes.put_u16_le(STORE_SUCCESS_RESPONSE_MESSAGE_ID);
             }
             StoreRedirectResponse { leader_address } => {
-                let leader_address = leader_address.to_string();
-
                 bytes.put_u16_le(STORE_REDIRECT_RESPONSE_MESSAGE_ID);
-                bytes.put_u32_le(leader_address.len().try_into().expect("Unable to convert"));
-                bytes.put(leader_address.as_bytes());
+                match leader_address {
+                    Some(leader_address) => {
+                        bytes.put_u8(1);
+                        let leader_address = leader_address.to_string();
+                        bytes.put_u32_le(leader_address.len().try_into().expect("Unable to convert"));
+                        bytes.put(leader_address.as_bytes());
+                    }
+                    None => bytes.put_u8(0),
+                }
             }
         }
         bytes.freeze()

@@ -31,9 +31,12 @@ impl PhysicalRelay {
     {
         let connections = Connections::bind(&endpoint).await?;
 
-        let (tx, rx) = mpsc::unbounded_channel();
-        tokio::spawn(Self::listen(connections, tx));
-        Ok(PhysicalRelay { endpoint, requests: rx })
+        let (requests_tx, requests_rx) = mpsc::unbounded_channel();
+        tokio::spawn(Self::listen(connections, requests_tx));
+        Ok(PhysicalRelay {
+            endpoint,
+            requests: requests_rx,
+        })
     }
 
     async fn listen(
@@ -70,7 +73,7 @@ impl PhysicalRelay {
                             requests.send((request, tx.clone())).expect("This is unexpected!");
                         }
                         Some(Err(e)) => {
-                            error!("Communication error; error = {:?}. Closing {} connection.", e, &connection.endpoint());
+                            error!("Communication error; error = {:?}. Closing {} connection.", e, &connection);
                             break
                         }
                         None => {
@@ -78,11 +81,9 @@ impl PhysicalRelay {
                             break
                         }
                     },
-                    result = rx.recv() => {
-                        if let Err(e) = connection.write(result.expect("This is unexpected!").into()).await {
-                            error!("Unable to respond to {}; error = {:?}.", &connection.endpoint(), e);
-                            break
-                        }
+                    result = rx.recv() => if let Err(e) = connection.write(result.expect("This is unexpected!").into()).await {
+                        error!("Unable to respond {}; error = {:?}.", &connection, e);
+                        break
                     },
                     _ = shutdown.changed() => break
                 }

@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 
 use bytes::{Bytes, BytesMut};
@@ -46,5 +47,11 @@ impl Connection {
 
     pub(super) async fn read(&mut self) -> Option<Result<BytesMut, std::io::Error>> {
         self.stream.next().await
+    }
+}
+
+impl Display for &Connection {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.endpoint)
     }
 }
