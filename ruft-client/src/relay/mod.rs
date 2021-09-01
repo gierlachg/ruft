@@ -5,13 +5,16 @@ use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{self, Duration};
 
+use crate::relay::connector::Connector;
 use crate::relay::protocol::Request;
-use crate::relay::protocol::Response::{self, StoreRedirectResponse, StoreSuccessResponse};
+use crate::relay::service::Service;
 use crate::relay::tcp::Connection;
-use crate::relay::ConnectionState::{BROKEN, CLOSED, REDIRECT};
+use crate::relay::State::{CONNECTED, DISCONNECTED, TERMINATED};
 use crate::{Result, RuftClientError};
 
+mod connector;
 pub(crate) mod protocol;
+mod service;
 mod tcp;
 
 #[derive(Clone)]
@@ -23,7 +26,7 @@ impl Relay {
     pub(super) async fn init(endpoints: Vec<SocketAddr>, connection_timeout_millis: u64) -> Result<Self> {
         let connection = time::timeout(
             Duration::from_millis(connection_timeout_millis),
-            Box::pin(Self::connect(&endpoints)).next(),
+            Box::pin(connect(&endpoints)).next(),
         )
         .await
         .unwrap_or(None)
@@ -43,116 +46,18 @@ impl Relay {
         connection: Connection,
         endpoints: Vec<SocketAddr>,
     ) {
-        let mut connection = connection;
-        let mut endpoints = endpoints;
-        let mut exchanges = Exchanges::new();
-
+        let mut state = CONNECTED(connection, Exchanges::new());
         loop {
-            endpoints = match Self::service(&mut requests.1, &mut connection, &mut exchanges).await {
-                REDIRECT(leader_address) => {
-                    Self::drain(connection, exchanges.split_off(1), requests.0.clone());
-                    vec![leader_address] // TODO: ensure on the list ???
+            state = match state {
+                CONNECTED(connection, exchanges) => {
+                    Service::new(&mut requests, connection, &endpoints, exchanges)
+                        .run()
+                        .await
                 }
-                BROKEN => {
-                    exchanges.fail();
-                    endpoints
-                }
-                CLOSED => break,
-            };
-
-            connection = match Self::reconnect(&mut requests.1, &endpoints, &mut exchanges).await {
-                Some(connection) => connection,
-                None => break,
+                DISCONNECTED(endpoints, exchanges) => Connector::new(&mut requests.1, endpoints, exchanges).run().await,
+                TERMINATED => break,
             }
         }
-    }
-
-    async fn service(
-        requests: &mut mpsc::UnboundedReceiver<(Request, Responder)>,
-        connection: &mut Connection,
-        exchanges: &mut Exchanges,
-    ) -> ConnectionState {
-        if let Err(_) = exchanges.write(connection).await {
-            return BROKEN;
-        }
-
-        loop {
-            tokio::select! {
-                result = requests.recv() => match result {
-                    Some((request, responder)) => {
-                        let exchange = exchanges.enqueue(request, responder);
-                        if let Err(_) = exchange.write(connection).await {
-                            return BROKEN
-                        }
-                    }
-                    None => return CLOSED,
-                },
-                result = connection.read() =>  match result.and_then(Result::ok).map(Response::from) {
-                    Some(response) => match response {
-                        StoreSuccessResponse {} =>  exchanges.dequeue().responder().respond_with_success(),
-                        StoreRedirectResponse {leader_address} => match leader_address {
-                            Some(leader_address) if &leader_address != connection.endpoint() => return REDIRECT(leader_address),
-                            _ => {
-                                let exchange = exchanges.requeue();
-                                if let Err(_) = exchange.write(connection).await {
-                                    return BROKEN
-                                }
-                            }
-                        }
-                    },
-                    None => return BROKEN
-                }
-            }
-        }
-    }
-
-    async fn reconnect(
-        requests: &mut mpsc::UnboundedReceiver<(Request, Responder)>,
-        endpoints: &Vec<SocketAddr>,
-        exchanges: &mut Exchanges,
-    ) -> Option<Connection> {
-        let mut connections = Box::pin(Self::connect(endpoints));
-        loop {
-            tokio::select! {
-                result = requests.recv() => match result {
-                     Some((request, responder)) => {
-                        exchanges.enqueue(request, responder);
-                     }
-                     None => return None
-                },
-                connection = connections.next() => return connection
-            }
-        }
-    }
-
-    fn connect(endpoints: &Vec<SocketAddr>) -> impl tokio_stream::Stream<Item = Connection> + '_ {
-        tokio_stream::iter(endpoints.iter().cycle())
-            .filter_map(|endpoint| async move { Connection::connect(endpoint).await.ok() })
-    }
-
-    fn drain(
-        mut connection: Connection,
-        mut exchanges: Exchanges,
-        requests: mpsc::UnboundedSender<(Request, Responder)>,
-    ) {
-        tokio::spawn(async move {
-            // TODO: stop on shutdown ??? holding onto requests prevents run() from stopping
-            loop {
-                match connection.read().await.and_then(Result::ok).map(Response::from) {
-                    Some(response) => match response {
-                        StoreSuccessResponse {} => exchanges.dequeue().responder().respond_with_success(),
-                        StoreRedirectResponse { leader_address: _ } => {
-                            let Exchange(request, responder) = exchanges.dequeue();
-                            requests.send((request, responder)).unwrap_or(())
-                        }
-                    },
-                    None => {
-                        exchanges.fail();
-                        break;
-                    }
-                }
-            }
-        });
     }
 
     pub(super) async fn send(&mut self, request: Request) -> Result<()> {
@@ -164,10 +69,15 @@ impl Relay {
     }
 }
 
-enum ConnectionState {
-    REDIRECT(SocketAddr),
-    BROKEN,
-    CLOSED,
+fn connect(endpoints: &Vec<SocketAddr>) -> impl tokio_stream::Stream<Item = Connection> + '_ {
+    tokio_stream::iter(endpoints.iter().cycle())
+        .filter_map(|endpoint| async move { Connection::connect(endpoint).await.ok() })
+}
+
+enum State {
+    CONNECTED(Connection, Exchanges),
+    DISCONNECTED(Vec<SocketAddr>, Exchanges),
+    TERMINATED,
 }
 
 // TODO: limit size ???
