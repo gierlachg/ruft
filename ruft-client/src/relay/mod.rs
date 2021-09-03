@@ -5,16 +5,16 @@ use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{self, Duration};
 
+use crate::relay::broker::Broker;
 use crate::relay::connector::Connector;
 use crate::relay::protocol::Request;
-use crate::relay::service::Service;
 use crate::relay::tcp::Connection;
 use crate::relay::State::{CONNECTED, DISCONNECTED, TERMINATED};
 use crate::{Result, RuftClientError};
 
+mod broker;
 mod connector;
 pub(crate) mod protocol;
-mod service;
 mod tcp;
 
 #[derive(Clone)]
@@ -50,7 +50,7 @@ impl Relay {
         loop {
             state = match state {
                 CONNECTED(connection, exchanges) => {
-                    Service::new(&mut requests, connection, &endpoints, exchanges)
+                    Broker::new(&mut requests, connection, &endpoints, exchanges)
                         .run()
                         .await
                 }

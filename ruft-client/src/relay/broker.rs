@@ -2,14 +2,14 @@ use std::net::SocketAddr;
 
 use tokio::sync::mpsc;
 
+use crate::relay::broker::ConnectionState::{BROKEN, CLOSED, REDIRECT};
 use crate::relay::protocol::Request;
 use crate::relay::protocol::Response::{self, StoreRedirectResponse, StoreSuccessResponse};
-use crate::relay::service::ConnectionState::{BROKEN, CLOSED, REDIRECT};
 use crate::relay::tcp::Connection;
 use crate::relay::State::{DISCONNECTED, TERMINATED};
 use crate::relay::{Exchange, Exchanges, Responder, State};
 
-pub(super) struct Service<'a> {
+pub(super) struct Broker<'a> {
     requests: &'a mut (
         mpsc::UnboundedSender<(Request, Responder)>,
         mpsc::UnboundedReceiver<(Request, Responder)>,
@@ -19,7 +19,7 @@ pub(super) struct Service<'a> {
     exchanges: Exchanges,
 }
 
-impl<'a> Service<'a> {
+impl<'a> Broker<'a> {
     pub(super) fn new(
         requests: &'a mut (
             mpsc::UnboundedSender<(Request, Responder)>,
@@ -29,7 +29,7 @@ impl<'a> Service<'a> {
         endpoints: &'a Vec<SocketAddr>,
         exchanges: Exchanges,
     ) -> Self {
-        Service {
+        Broker {
             requests,
             connection,
             endpoints,
