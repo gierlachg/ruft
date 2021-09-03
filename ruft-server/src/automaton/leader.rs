@@ -4,6 +4,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use tokio::time::{self, Duration};
 
+use crate::automaton::State::TERMINATED;
 use crate::automaton::{Responder, State};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest};
 use crate::cluster::Cluster;
@@ -49,7 +50,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
     }
 
-    pub(super) async fn run(&mut self) -> Option<State> {
+    pub(super) async fn run(&mut self) -> State {
         assert_eq!(
             self.storage.extend(self.term, vec![noop_message()]).await,
             Position::of(self.term, 0)
@@ -62,16 +63,14 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                     self.on_tick().await
                 },
                 message = self.cluster.messages() => match message {
-                    Some(message) => {
-                        if let Some(state) = self.on_message(message).await {
-                            return Some(state)
-                        }
-                    }
-                    None => return None
+                    Some(message) => if let Some(state) = self.on_message(message).await {
+                        return state
+                    },
+                    None => return TERMINATED
                 },
                 request = self.relay.requests() => match request {
                     Some((request, responder)) => self.on_client_request(request, Responder(responder)).await,
-                    None => return None
+                    None => return TERMINATED
                 }
             }
         }

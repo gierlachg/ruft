@@ -2,6 +2,7 @@ use bytes::Bytes;
 use log::info;
 use tokio::time::{self, Duration};
 
+use crate::automaton::State::{CANDIDATE, TERMINATED};
 use crate::automaton::{Responder, State};
 use crate::cluster::protocol::Message::{self, AppendRequest, VoteRequest};
 use crate::cluster::Cluster;
@@ -43,19 +44,19 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         }
     }
 
-    pub(super) async fn run(&mut self) -> Option<State> {
+    pub(super) async fn run(&mut self) -> State {
         loop {
             tokio::select! {
                 _ = time::sleep(self.election_timeout) => {
-                    return Some(State::CANDIDATE { id: self.id, term: self.term })
+                    return CANDIDATE { id: self.id, term: self.term }
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => self.on_message(message).await,
-                    None => return None
+                    None => return TERMINATED
                 },
                 request = self.relay.requests() => match request {
                     Some((request, responder)) => self.on_client_request(request, Responder(responder)),
-                    None => return None
+                    None => return TERMINATED
                 }
             }
         }

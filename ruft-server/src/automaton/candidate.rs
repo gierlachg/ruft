@@ -1,5 +1,6 @@
-use tokio::time::{self, Duration};
+use tokio::time::{self, Duration, Instant};
 
+use crate::automaton::State::TERMINATED;
 use crate::automaton::{Responder, State};
 use crate::cluster::protocol::Message::{self, AppendRequest, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
@@ -40,25 +41,24 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         }
     }
 
-    pub(super) async fn run(&mut self) -> Option<State> {
-        let mut election_timer = time::interval(self.election_timeout);
+    pub(super) async fn run(&mut self) -> State {
+        self.on_election_timeout().await;
+
+        let mut election_timer = time::interval_at(Instant::now() + self.election_timeout, self.election_timeout);
         loop {
             tokio::select! {
                 _ = election_timer.tick() => {
-                    // TODO: it is possible that other branch gets executed first on 'first' tick
                     self.on_election_timeout().await
                 },
                 message = self.cluster.messages() => match message {
-                    Some(message) => {
-                        if let Some(state) = self.on_message(message).await {
-                            return Some(state)
-                        }
-                    }
-                    None => return None
+                    Some(message) => if let Some(state) = self.on_message(message).await {
+                        return state
+                    },
+                    None => return TERMINATED
                 },
                 request = self.relay.requests() => match request {
                     Some((request, responder)) => self.on_client_request(request, Responder(responder)),
-                    None => return None
+                    None => return TERMINATED
                 }
             }
         }
@@ -69,7 +69,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         self.granted_votes = 1;
         self.cluster
             .broadcast(Message::vote_request(self.id, self.term, *self.storage.head()))
-            .await;
+            .await
     }
 
     async fn on_message(&mut self, message: Message) -> Option<State> {

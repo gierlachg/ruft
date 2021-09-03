@@ -10,7 +10,7 @@ use tokio::time::Duration;
 use crate::automaton::candidate::Candidate;
 use crate::automaton::follower::Follower;
 use crate::automaton::leader::Leader;
-use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER};
+use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER, TERMINATED};
 use crate::cluster::{Cluster, PhysicalCluster};
 use crate::relay::protocol::Response;
 use crate::relay::PhysicalRelay;
@@ -59,7 +59,7 @@ impl Automaton {
         info!("Starting as: {}", state);
 
         loop {
-            state = match match state {
+            state = match state {
                 FOLLOWER { id, term, leader_id } => {
                     Follower::init(
                         id,
@@ -73,19 +73,17 @@ impl Automaton {
                     .run()
                     .await
                 }
-                LEADER { id, term } => {
-                    Leader::init(id, term, &mut storage, &mut cluster, &mut relay, heartbeat_interval)
-                        .run()
-                        .await
-                }
                 CANDIDATE { id, term } => {
                     Candidate::init(id, term, &mut storage, &mut cluster, &mut relay, election_timeout)
                         .run()
                         .await
                 }
-            } {
-                Some(state) => state,
-                None => break,
+                LEADER { id, term } => {
+                    Leader::init(id, term, &mut storage, &mut cluster, &mut relay, heartbeat_interval)
+                        .run()
+                        .await
+                }
+                TERMINATED => break,
             };
             info!("Switching over to: {}", state);
         }
@@ -101,6 +99,8 @@ enum State {
     CANDIDATE { id: Id, term: u64 },
     #[display(fmt = "FOLLOWER {{ id: {}, term: {}, leader id: {:?} }}", id, term, leader_id)]
     FOLLOWER { id: Id, term: u64, leader_id: Option<Id> },
+    #[display(fmt = "TERMINATED")]
+    TERMINATED,
 }
 
 impl State {
