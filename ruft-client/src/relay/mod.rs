@@ -50,11 +50,9 @@ impl Relay {
         loop {
             state = match state {
                 CONNECTED(connection, exchanges) => {
-                    Broker::new(&mut requests, connection, &endpoints, exchanges)
-                        .run()
-                        .await
+                    Broker::service(&mut requests, connection, &endpoints, exchanges).await
                 }
-                DISCONNECTED(endpoints, exchanges) => Connector::new(&mut requests.1, endpoints, exchanges).run().await,
+                DISCONNECTED(endpoints, exchanges) => Connector::connect(&mut requests.1, endpoints, exchanges).await,
                 TERMINATED => break,
             }
         }
@@ -102,17 +100,8 @@ impl Exchanges {
         self.enqueue(request, responder)
     }
 
-    fn drain(&mut self) -> impl Iterator<Item = Exchange> + '_ {
-        self.0.drain(..)
-    }
-
     fn split_off(&mut self, at: usize) -> Exchanges {
         Exchanges(self.0.split_off(at))
-    }
-
-    fn fail(&mut self) {
-        self.drain()
-            .for_each(|exchange| exchange.responder().respond_with_error());
     }
 
     async fn write(&self, connection: &mut Connection) -> Result<()> {
@@ -120,6 +109,12 @@ impl Exchanges {
             exchange.write(connection).await?
         }
         Ok(())
+    }
+
+    fn fail(mut self) {
+        self.0
+            .drain(..)
+            .for_each(|exchange| exchange.responder().respond_with_error());
     }
 }
 

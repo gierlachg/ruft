@@ -7,37 +7,28 @@ use crate::relay::protocol::Request;
 use crate::relay::State::{CONNECTED, TERMINATED};
 use crate::relay::{connect, Exchanges, Responder, State};
 
-pub(super) struct Connector<'a> {
-    requests: &'a mut mpsc::UnboundedReceiver<(Request, Responder)>,
-    endpoints: Vec<SocketAddr>,
-    exchanges: Exchanges,
-}
+pub(super) struct Connector {}
 
-impl<'a> Connector<'a> {
-    pub(super) fn new(
-        requests: &'a mut mpsc::UnboundedReceiver<(Request, Responder)>,
+impl Connector {
+    pub(super) async fn connect(
+        requests: &mut mpsc::UnboundedReceiver<(Request, Responder)>,
         endpoints: Vec<SocketAddr>,
-        exchanges: Exchanges,
-    ) -> Self {
-        Connector {
-            requests,
-            endpoints,
-            exchanges,
+        mut exchanges: Exchanges,
+    ) -> State {
+        tokio::pin! {
+            let connections = connect(&endpoints);
         }
-    }
 
-    pub(super) async fn run(mut self) -> State {
-        let mut connections = Box::pin(connect(&self.endpoints));
         loop {
             tokio::select! {
-                result = self.requests.recv() => match result {
+                result = requests.recv() => match result {
                      Some((request, responder)) => {
-                        self.exchanges.enqueue(request, responder);
+                        exchanges.enqueue(request, responder);
                      }
                      None => return TERMINATED
                 },
                 connection = connections.next() => match connection {
-                    Some(connection) => return CONNECTED(connection, self.exchanges),
+                    Some(connection) => return CONNECTED(connection, exchanges),
                     None => return TERMINATED
                 }
             }
