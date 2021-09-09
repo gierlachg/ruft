@@ -1,21 +1,15 @@
 use std::net::SocketAddr;
 
-use tokio::sync::mpsc;
-
-use crate::relay::protocol::Request;
 use crate::relay::protocol::Response::{self, StoreRedirectResponse, StoreSuccessResponse};
 use crate::relay::tcp::Connection;
 use crate::relay::State::{DISCONNECTED, TERMINATED};
-use crate::relay::{Exchange, Exchanges, Responder, State};
+use crate::relay::{Exchange, Exchanges, Receiver, Sender, State};
 
 pub(super) struct Broker {}
 
 impl Broker {
     pub(super) async fn service<'a>(
-        requests: &'a mut (
-            mpsc::UnboundedSender<(Request, Responder)>,
-            mpsc::UnboundedReceiver<(Request, Responder)>,
-        ),
+        requests: &'a mut (Sender, Receiver),
         mut connection: Connection,
         endpoints: &'a Vec<SocketAddr>,
         mut exchanges: Exchanges,
@@ -32,10 +26,10 @@ impl Broker {
                         let exchange = exchanges.enqueue(request, responder);
                         if let Err(_) = exchange.write(&mut connection).await {
                             exchanges.fail();
-                            return DISCONNECTED(endpoints.clone(), Exchanges::new())
+                            break DISCONNECTED(endpoints.clone(), Exchanges::new())
                         }
                     }
-                    None => return TERMINATED
+                    None => break TERMINATED
                 },
                 result = connection.read() => match result.and_then(Result::ok).map(Response::from) {
                     Some(response) => match response {
@@ -43,33 +37,29 @@ impl Broker {
                         StoreRedirectResponse {leader_address} => match leader_address {
                             Some(leader_address) if &leader_address != connection.endpoint() => {
                                 Self::drain(connection, exchanges.split_off(1), requests.0.clone());
-                                return DISCONNECTED(vec!(leader_address), exchanges)
+                                break DISCONNECTED(vec!(leader_address), exchanges)
                             }
                             _ => {
                                 let exchange = exchanges.requeue();
                                 if let Err(_) = exchange.write(&mut connection).await {
                                     exchanges.fail();
-                                    return DISCONNECTED(endpoints.clone(), Exchanges::new())
+                                    break DISCONNECTED(endpoints.clone(), Exchanges::new())
                                 }
                             }
                         }
                     },
                     None => {
                         exchanges.fail();
-                        return DISCONNECTED(endpoints.clone(), Exchanges::new())
+                        break DISCONNECTED(endpoints.clone(), Exchanges::new())
                     }
                 }
             }
         }
     }
 
-    fn drain(
-        mut connection: Connection,
-        mut exchanges: Exchanges,
-        requests: mpsc::UnboundedSender<(Request, Responder)>,
-    ) {
+    fn drain(mut connection: Connection, mut exchanges: Exchanges, requests: Sender) {
         tokio::spawn(async move {
-            // TODO: stop on shutdown ??? holding onto requests prevents run() from terminating
+            // TODO: stop on shutdown ??? holding onto requests prevents Relay from terminating
             loop {
                 match connection.read().await.and_then(Result::ok).map(Response::from) {
                     Some(response) => match response {
@@ -79,10 +69,7 @@ impl Broker {
                             requests.send((request, responder)).unwrap_or(())
                         }
                     },
-                    None => {
-                        exchanges.fail();
-                        break;
-                    }
+                    None => break exchanges.fail(),
                 }
             }
         });

@@ -38,14 +38,7 @@ impl Relay {
         Ok(Relay { requests: tx })
     }
 
-    async fn run(
-        mut requests: (
-            mpsc::UnboundedSender<(Request, Responder)>,
-            mpsc::UnboundedReceiver<(Request, Responder)>,
-        ),
-        connection: Connection,
-        endpoints: Vec<SocketAddr>,
-    ) {
+    async fn run(mut requests: (Sender, Receiver), connection: Connection, endpoints: Vec<SocketAddr>) {
         let mut state = CONNECTED(connection, Exchanges::new());
         loop {
             state = match state {
@@ -77,6 +70,9 @@ enum State {
     DISCONNECTED(Vec<SocketAddr>, Exchanges),
     TERMINATED,
 }
+
+type Sender = mpsc::UnboundedSender<(Request, Responder)>;
+type Receiver = mpsc::UnboundedReceiver<(Request, Responder)>;
 
 // TODO: limit size ???
 struct Exchanges(VecDeque<Exchange>);

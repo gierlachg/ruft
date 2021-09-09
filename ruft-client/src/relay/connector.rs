@@ -1,17 +1,15 @@
 use std::net::SocketAddr;
 
 use futures::StreamExt;
-use tokio::sync::mpsc;
 
-use crate::relay::protocol::Request;
 use crate::relay::State::{CONNECTED, TERMINATED};
-use crate::relay::{connect, Exchanges, Responder, State};
+use crate::relay::{connect, Exchanges, Receiver, State};
 
 pub(super) struct Connector {}
 
 impl Connector {
     pub(super) async fn connect(
-        requests: &mut mpsc::UnboundedReceiver<(Request, Responder)>,
+        requests: &mut Receiver,
         endpoints: Vec<SocketAddr>,
         mut exchanges: Exchanges,
     ) -> State {
@@ -25,11 +23,11 @@ impl Connector {
                      Some((request, responder)) => {
                         exchanges.enqueue(request, responder);
                      }
-                     None => return TERMINATED
+                     None => break TERMINATED
                 },
                 connection = connections.next() => match connection {
-                    Some(connection) => return CONNECTED(connection, exchanges),
-                    None => return TERMINATED
+                    Some(connection) => break CONNECTED(connection, exchanges),
+                    None => break TERMINATED
                 }
             }
         }
