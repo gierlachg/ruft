@@ -184,7 +184,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         // TODO: store in exchanges ? leadership lost...
         match request {
             StoreRequest { payload } => {
-                let position = self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
+                let position = self.storage.extend(self.term, vec![payload.0]).await; // TODO: replicate, get rid of vec!
                 self.replicator.on_client_request(position, responder);
             }
         }

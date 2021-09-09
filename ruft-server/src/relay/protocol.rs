@@ -1,44 +1,39 @@
-use std::convert::TryInto;
+use std::convert::TryFrom;
 use std::net::SocketAddr;
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use derive_more::Display;
+use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::relay::protocol::Request::StoreRequest;
 use crate::relay::protocol::Response::{StoreRedirectResponse, StoreSuccessResponse};
 
 const STORE_REQUEST_ID: u16 = 1;
-const STORE_SUCCESS_RESPONSE_MESSAGE_ID: u16 = 2;
-const STORE_REDIRECT_RESPONSE_MESSAGE_ID: u16 = 3;
+const STORE_SUCCESS_RESPONSE_ID: u16 = 2;
+const STORE_REDIRECT_RESPONSE_ID: u16 = 3;
 
-#[derive(PartialEq, Display, Debug)]
+#[derive(Deserialize, Display, Debug)]
+#[repr(u16)]
 pub(crate) enum Request {
     #[display(fmt = "StoreRequest {{ }}")]
-    StoreRequest { payload: Bytes },
+    StoreRequest { payload: SerializableBytes } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
-// TODO: TryFrom
-impl From<Bytes> for Request {
-    fn from(mut bytes: Bytes) -> Self {
-        let r#type = bytes.get_u16_le();
-        match r#type {
-            STORE_REQUEST_ID => {
-                let len = bytes.get_u32_le().try_into().expect("Unable to convert");
-                let payload = bytes.split_to(len);
-                StoreRequest { payload }
-            }
-            r#type => panic!("Unknown message type: {}", r#type),
-        }
+impl TryFrom<Bytes> for Request {
+    type Error = ();
+
+    fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
+        bincode::deserialize(bytes.as_ref()).map_err(|_| ()) // TODO: error
     }
 }
 
-#[derive(PartialEq, Clone, Display, Debug)]
+#[derive(Serialize, Display)]
+#[repr(u16)]
 pub(crate) enum Response {
     #[display(fmt = "StoreSuccessResponse {{ }}")]
-    StoreSuccessResponse {},
+    StoreSuccessResponse {} = STORE_SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(fmt = "StoreRedirectResponse {{ leader_address: {:?} }}", leader_address)]
-    StoreRedirectResponse { leader_address: Option<SocketAddr> },
+    StoreRedirectResponse { leader_address: Option<SocketAddr> } = STORE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Response {
@@ -53,24 +48,19 @@ impl Response {
 
 impl Into<Bytes> for Response {
     fn into(self) -> Bytes {
-        let mut bytes = BytesMut::new();
-        match self {
-            StoreSuccessResponse {} => {
-                bytes.put_u16_le(STORE_SUCCESS_RESPONSE_MESSAGE_ID);
-            }
-            StoreRedirectResponse { leader_address } => {
-                bytes.put_u16_le(STORE_REDIRECT_RESPONSE_MESSAGE_ID);
-                match leader_address {
-                    Some(leader_address) => {
-                        bytes.put_u8(1);
-                        let leader_address = leader_address.to_string();
-                        bytes.put_u32_le(leader_address.len().try_into().expect("Unable to convert"));
-                        bytes.put(leader_address.as_bytes());
-                    }
-                    None => bytes.put_u8(0),
-                }
-            }
-        }
-        bytes.freeze()
+        Bytes::from(bincode::serialize(&self).unwrap()) // TODO: try_into ?
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct SerializableBytes(pub(crate) Bytes);
+
+impl<'de> Deserialize<'de> for SerializableBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // TODO: &[u8]
+        Vec::<u8>::deserialize(deserializer).map(|bytes| SerializableBytes(Bytes::from(bytes)))
     }
 }

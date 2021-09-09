@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::net::SocketAddr;
 
 use crate::relay::protocol::Response::{self, StoreRedirectResponse, StoreSuccessResponse};
@@ -31,7 +32,7 @@ impl Broker {
                     }
                     None => break TERMINATED
                 },
-                result = connection.read() => match result.and_then(Result::ok).map(Response::from) {
+                result = connection.read() => match result.and_then(Result::ok).and_then(|bytes| Response::try_from(bytes).ok()) {
                     Some(response) => match response {
                         StoreSuccessResponse {} =>  exchanges.dequeue().responder().respond_with_success(),
                         StoreRedirectResponse {leader_address} => match leader_address {
@@ -61,7 +62,12 @@ impl Broker {
         tokio::spawn(async move {
             // TODO: stop on shutdown ??? holding onto requests prevents Relay from terminating
             loop {
-                match connection.read().await.and_then(Result::ok).map(Response::from) {
+                match connection
+                    .read()
+                    .await
+                    .and_then(Result::ok)
+                    .and_then(|bytes| Response::try_from(bytes).ok())
+                {
                     Some(response) => match response {
                         StoreSuccessResponse {} => exchanges.dequeue().responder().respond_with_success(),
                         StoreRedirectResponse { leader_address: _ } => {

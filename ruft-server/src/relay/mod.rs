@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -68,22 +69,15 @@ impl PhysicalRelay {
             loop {
                 tokio::select! {
                     result = connection.read() => match result {
-                        Some(Ok(request)) => {
-                            let request = Request::from(request.freeze());
-                            requests.send((request, tx.clone())).expect("This is unexpected!");
+                        Some(Ok(bytes)) => match Request::try_from(bytes.freeze()) {
+                            Ok(request) => requests.send((request, tx.clone())).expect("This is unexpected!"),
+                            Err(e) => break error!("Parsing error; error = {:?}. Closing {} connection.", e, &connection),
                         }
-                        Some(Err(e)) => {
-                            error!("Communication error; error = {:?}. Closing {} connection.", e, &connection);
-                            break
-                        }
-                        None => {
-                            trace!("{} connection closed by peer.", &connection.endpoint());
-                            break
-                        }
+                        Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &connection),
+                        None => break trace!("{} connection closed by peer.", &connection.endpoint()),
                     },
                     result = rx.recv() => if let Err(e) = connection.write(result.expect("This is unexpected!").into()).await {
-                        error!("Unable to respond {}; error = {:?}.", &connection, e);
-                        break
+                        break error!("Unable to respond {}; error = {:?}.", &connection, e)
                     },
                     _ = shutdown.changed() => break
                 }

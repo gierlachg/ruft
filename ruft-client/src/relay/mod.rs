@@ -19,7 +19,7 @@ mod tcp;
 
 #[derive(Clone)]
 pub(super) struct Relay {
-    requests: mpsc::UnboundedSender<(Request, Responder)>,
+    requests: Sender,
 }
 
 impl Relay {

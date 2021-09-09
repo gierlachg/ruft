@@ -87,10 +87,7 @@ impl Ingress {
             tokio::select! {
                 result = listener.next() => match result {
                     Ok(reader) => Self::on_connection(reader, messages.clone(), shutdown_rx.clone()),
-                    Err(e) => {
-                        trace!("Error accepting connection; error = {:?}", e);
-                        break
-                    }
+                    Err(e) => break trace!("Error accepting connection; error = {:?}", e),
                 },
                 _ = signal::ctrl_c() => break // TODO: dedup with relay signal
             }
@@ -106,14 +103,8 @@ impl Ingress {
                             let message = Message::from(message.freeze());
                             messages.send(message).expect("This is unexpected!");
                         }
-                        Some(Err(e)) => {
-                            error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint());
-                            break
-                        }
-                        None => {
-                            trace!("{} connection closed by peer.", &reader.endpoint());
-                            break
-                        }
+                        Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint()),
+                        None => break trace!("{} connection closed by peer.", &reader.endpoint()),
                     },
                     _ = shutdown.changed() => break
                 }
