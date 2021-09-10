@@ -10,17 +10,19 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 const LENGTH_FIELD_OFFSET: usize = 0;
 const LENGTH_FIELD_LENGTH: usize = 4;
 
+type Error = Box<dyn std::error::Error + Send + Sync>;
+
 pub(super) struct Connections {
     listener: TcpListener,
 }
 
 impl Connections {
-    pub(super) async fn bind(endpoint: &SocketAddr) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub(super) async fn bind(endpoint: &SocketAddr) -> Result<Self, Error> {
         let listener = TcpListener::bind(&endpoint).await?;
         Ok(Connections { listener })
     }
 
-    pub(super) async fn next(&mut self) -> Result<Connection, Box<dyn std::error::Error + Send + Sync>> {
+    pub(super) async fn next(&mut self) -> Result<Connection, Error> {
         let (stream, endpoint) = self.listener.accept().await?;
         let stream = LengthDelimitedCodec::builder()
             .length_field_offset(LENGTH_FIELD_OFFSET)

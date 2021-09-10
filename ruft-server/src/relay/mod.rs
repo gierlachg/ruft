@@ -15,6 +15,9 @@ use crate::Shutdown;
 pub(crate) mod protocol;
 mod tcp;
 
+type Sender = mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>;
+type Receiver = mpsc::UnboundedReceiver<(Request, mpsc::UnboundedSender<Response>)>;
+
 #[async_trait]
 pub(crate) trait Relay {
     async fn requests(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)>;
@@ -22,7 +25,7 @@ pub(crate) trait Relay {
 
 pub(crate) struct PhysicalRelay {
     endpoint: SocketAddr,
-    requests: mpsc::UnboundedReceiver<(Request, mpsc::UnboundedSender<Response>)>,
+    requests: Receiver,
 }
 
 impl PhysicalRelay {
@@ -40,11 +43,7 @@ impl PhysicalRelay {
         })
     }
 
-    async fn listen(
-        mut connections: Connections,
-        requests: mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>,
-        mut shutdown: Shutdown,
-    ) {
+    async fn listen(mut connections: Connections, requests: Sender, mut shutdown: Shutdown) {
         loop {
             tokio::select! {
                 result = connections.next() => match result {
@@ -59,11 +58,7 @@ impl PhysicalRelay {
         }
     }
 
-    fn on_connection(
-        mut connection: Connection,
-        requests: mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>,
-        mut shutdown: Shutdown,
-    ) {
+    fn on_connection(mut connection: Connection, requests: Sender, mut shutdown: Shutdown) {
         tokio::spawn(async move {
             let (tx, mut rx) = mpsc::unbounded_channel();
             loop {

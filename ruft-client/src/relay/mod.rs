@@ -17,6 +17,9 @@ mod connector;
 pub(crate) mod protocol;
 mod tcp;
 
+type Sender = mpsc::UnboundedSender<(Request, Responder)>;
+type Receiver = mpsc::UnboundedReceiver<(Request, Responder)>;
+
 #[derive(Clone)]
 pub(super) struct Relay {
     requests: Sender,
@@ -70,9 +73,6 @@ enum State {
     DISCONNECTED(Vec<SocketAddr>, Exchanges),
     TERMINATED,
 }
-
-type Sender = mpsc::UnboundedSender<(Request, Responder)>;
-type Receiver = mpsc::UnboundedReceiver<(Request, Responder)>;
 
 // TODO: limit size ???
 struct Exchanges(VecDeque<Exchange>);

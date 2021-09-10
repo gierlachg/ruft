@@ -9,12 +9,14 @@ use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 const LENGTH_FIELD_OFFSET: usize = 0;
 const LENGTH_FIELD_LENGTH: usize = 4;
 
+type Error = Box<dyn std::error::Error + Send + Sync>;
+
 pub(crate) struct Writer {
     writer: FramedWrite<TcpStream, LengthDelimitedCodec>,
 }
 
 impl Writer {
-    pub(crate) async fn connect(endpoint: &SocketAddr) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub(crate) async fn connect(endpoint: &SocketAddr) -> Result<Self, Error> {
         let stream = TcpStream::connect(endpoint).await?;
         let writer = LengthDelimitedCodec::builder()
             .length_field_offset(LENGTH_FIELD_OFFSET)
@@ -24,7 +26,7 @@ impl Writer {
         Ok(Writer { writer })
     }
 
-    pub(crate) async fn write(&mut self, message: Bytes) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub(crate) async fn write(&mut self, message: Bytes) -> Result<(), Error> {
         Ok(self.writer.send(message).await?)
     }
 }
@@ -34,12 +36,12 @@ pub(crate) struct Listener {
 }
 
 impl Listener {
-    pub(crate) async fn bind(endpoint: &SocketAddr) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub(crate) async fn bind(endpoint: &SocketAddr) -> Result<Self, Error> {
         let listener = TcpListener::bind(&endpoint).await?;
         Ok(Listener { listener })
     }
 
-    pub(crate) async fn next(&mut self) -> Result<Reader, Box<dyn std::error::Error + Send + Sync>> {
+    pub(crate) async fn next(&mut self) -> Result<Reader, Error> {
         let (stream, endpoint) = self.listener.accept().await?;
         let reader = LengthDelimitedCodec::builder()
             .length_field_offset(LENGTH_FIELD_OFFSET)
