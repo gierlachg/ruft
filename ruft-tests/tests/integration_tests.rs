@@ -4,7 +4,6 @@ use bytes::Bytes;
 use portpicker::pick_unused_port;
 
 use ruft_client::RuftClient;
-use ruft_server::RuftServer;
 
 #[tokio::test(flavor = "current_thread")]
 #[should_panic(expected = "Unable to connect to the cluster")]
@@ -65,7 +64,7 @@ fn spawn_node(
     remote_client_endpoints: Vec<SocketAddr>,
 ) {
     tokio::spawn(async move {
-        RuftServer::run(
+        ruft_server::run(
             local_endpoint,
             local_client_endpoint,
             remote_endpoints,

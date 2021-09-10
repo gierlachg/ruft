@@ -5,42 +5,70 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::hash::Hash;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use bytes::Bytes;
 use derive_more::Display;
+use log::info;
+use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::sync::watch;
 
-use crate::automaton::Automaton;
+use crate::cluster::PhysicalCluster;
+use crate::relay::PhysicalRelay;
+use crate::storage::volatile::VolatileStorage;
 
 mod automaton;
 mod cluster;
 mod relay;
 mod storage;
 
-pub struct RuftServer {}
+// TODO: configurable
+const HEARTBEAT_INTERVAL_MILLIS: u64 = 20;
+const ELECTION_TIMEOUT_BASE_MILLIS: u64 = 250;
 
-impl RuftServer {
-    pub async fn run(
-        local_endpoint: SocketAddr,
-        local_client_endpoint: SocketAddr,
-        remote_endpoints: Vec<SocketAddr>,
-        remote_client_endpoints: Vec<SocketAddr>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        assert_eq!(
-            remote_endpoints.len(),
-            remote_client_endpoints.len(),
-            "Remote endpoints and remote client endpoints lists differ in length"
-        );
+pub async fn run(
+    local_endpoint: SocketAddr,
+    local_client_endpoint: SocketAddr,
+    remote_endpoints: Vec<SocketAddr>,
+    remote_client_endpoints: Vec<SocketAddr>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    assert_eq!(
+        remote_endpoints.len(),
+        remote_client_endpoints.len(),
+        "Remote endpoints and remote client endpoints lists differ in length"
+    );
 
-        let (local_endpoint, remote_endpoints) = to_endpoints(
-            local_endpoint,
-            local_client_endpoint,
-            remote_endpoints,
-            remote_client_endpoints,
-        );
-        Automaton::run(local_endpoint, remote_endpoints).await
-    }
+    let (local_endpoint, remote_endpoints) = to_endpoints(
+        local_endpoint,
+        local_client_endpoint,
+        remote_endpoints,
+        remote_client_endpoints,
+    );
+
+    let heartbeat_interval = Duration::from_millis(HEARTBEAT_INTERVAL_MILLIS);
+    let election_timeout = Duration::from_millis(ELECTION_TIMEOUT_BASE_MILLIS + rand::thread_rng().gen_range(0..=250));
+
+    let shutdown = Shutdown::watch();
+
+    let storage = VolatileStorage::init();
+    info!("Using {} storage", &storage);
+
+    let cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints, shutdown.clone()).await?;
+    info!("{}", &cluster);
+
+    let relay = PhysicalRelay::init(local_endpoint.client_address().clone(), shutdown).await?;
+    info!("Listening for client connections on {}", &relay);
+
+    automaton::run(
+        local_endpoint.id(),
+        heartbeat_interval,
+        election_timeout,
+        storage,
+        cluster,
+        relay,
+    )
+    .await
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Display, Debug, Serialize, Deserialize)]

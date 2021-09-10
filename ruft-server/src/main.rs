@@ -8,8 +8,6 @@ use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Root};
 use tokio;
 
-use ruft_server::RuftServer;
-
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const LOCAL_ENDPOINT: &str = "local endpoint";
 const LOCAL_CLIENT_ENDPOINT: &str = "local client endpoint";
@@ -44,7 +42,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logging();
 
     info!("Initializing Ruft server (version: {})", VERSION);
-    RuftServer::run(
+    ruft_server::run(
         local_endpoint,
         local_client_endpoint,
         remote_endpoints,
