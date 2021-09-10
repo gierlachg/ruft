@@ -2,6 +2,9 @@ name: Compile & Test
 
 on: [ push ]
 
+env:
+  CARGO_INCREMENTAL: 0
+
 jobs:
   check:
 
