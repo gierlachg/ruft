@@ -52,13 +52,13 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => if let Some(state) = self.on_message(message).await {
-                        return state
+                        break state
                     },
-                    None => return TERMINATED
+                    None => break TERMINATED
                 },
                 request = self.relay.requests() => match request {
                     Some((request, responder)) => self.on_client_request(request, Responder(responder)),
-                    None => return TERMINATED
+                    None => break TERMINATED
                 }
             }
         }

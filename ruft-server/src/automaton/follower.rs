@@ -48,15 +48,15 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         loop {
             tokio::select! {
                 _ = time::sleep(self.election_timeout) => {
-                    return CANDIDATE { id: self.id, term: self.term }
+                    break CANDIDATE { id: self.id, term: self.term }
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => self.on_message(message).await,
-                    None => return TERMINATED
+                    None => break TERMINATED
                 },
                 request = self.relay.requests() => match request {
                     Some((request, responder)) => self.on_client_request(request, Responder(responder)),
-                    None => return TERMINATED
+                    None => break TERMINATED
                 }
             }
         }

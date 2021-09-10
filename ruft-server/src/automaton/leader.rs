@@ -64,13 +64,13 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => if let Some(state) = self.on_message(message).await {
-                        return state
+                        break state
                     },
-                    None => return TERMINATED
+                    None => break TERMINATED
                 },
                 request = self.relay.requests() => match request {
                     Some((request, responder)) => self.on_client_request(request, Responder(responder)).await,
-                    None => return TERMINATED
+                    None => break TERMINATED
                 }
             }
         }
@@ -120,7 +120,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         if term > self.term {
             Some(State::follower(self.id, term, Some(leader_id)))
         } else if term == self.term {
-            panic!("Double leader detected - term: {}, leader id: {}", term, leader_id);
+            panic!("Double leader detected - term: {}, leader id: {}", term, leader_id.0);
         } else {
             self.cluster
                 .send(
