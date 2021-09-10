@@ -6,11 +6,11 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use log::{error, trace};
-use tokio::signal;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 
 use crate::relay::protocol::{Request, Response};
 use crate::relay::tcp::{Connection, Connections};
+use crate::Shutdown;
 
 pub(crate) mod protocol;
 mod tcp;
@@ -26,14 +26,14 @@ pub(crate) struct PhysicalRelay {
 }
 
 impl PhysicalRelay {
-    pub(crate) async fn init(endpoint: SocketAddr) -> Result<Self, Box<dyn Error + Send + Sync>>
+    pub(crate) async fn init(endpoint: SocketAddr, shutdown: Shutdown) -> Result<Self, Box<dyn Error + Send + Sync>>
     where
         Self: Sized,
     {
         let connections = Connections::bind(&endpoint).await?;
 
         let (requests_tx, requests_rx) = mpsc::unbounded_channel();
-        tokio::spawn(Self::listen(connections, requests_tx));
+        tokio::spawn(Self::listen(connections, requests_tx, shutdown));
         Ok(PhysicalRelay {
             endpoint,
             requests: requests_rx,
@@ -43,18 +43,18 @@ impl PhysicalRelay {
     async fn listen(
         mut connections: Connections,
         requests: mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>,
+        mut shutdown: Shutdown,
     ) {
-        let (_shutdown_tx, shutdown_rx) = watch::channel(());
         loop {
             tokio::select! {
                 result = connections.next() => match result {
-                    Ok(connection) => Self::on_connection(connection, requests.clone(), shutdown_rx.clone()),
+                    Ok(connection) => Self::on_connection(connection, requests.clone(), shutdown.clone()),
                     Err(e) => {
                         trace!("Error accepting connection; error = {:?}", e);
                         break
                     }
                 },
-                _ = signal::ctrl_c() => break // TODO: dedup with cluster signal
+                _ = shutdown.receive() => break
             }
         }
     }
@@ -62,7 +62,7 @@ impl PhysicalRelay {
     fn on_connection(
         mut connection: Connection,
         requests: mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>,
-        mut shutdown: watch::Receiver<()>,
+        mut shutdown: Shutdown,
     ) {
         tokio::spawn(async move {
             let (tx, mut rx) = mpsc::unbounded_channel();
@@ -79,7 +79,7 @@ impl PhysicalRelay {
                     result = rx.recv() => if let Err(e) = connection.write(result.expect("This is unexpected!").into()).await {
                         break error!("Unable to respond {}; error = {:?}.", &connection, e)
                     },
-                    _ = shutdown.changed() => break
+                    _ = shutdown.receive() => break
                 }
             }
         });

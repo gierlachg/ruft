@@ -9,7 +9,7 @@ use futures::future::join_all;
 
 use crate::cluster::connection::{Egress, Ingress};
 use crate::cluster::protocol::Message;
-use crate::{Endpoint, Id};
+use crate::{Endpoint, Id, Shutdown};
 
 mod connection;
 pub(crate) mod protocol;
@@ -39,6 +39,7 @@ impl PhysicalCluster {
     pub(crate) async fn init(
         local_endpoint: Endpoint,
         remote_endpoints: Vec<Endpoint>,
+        shutdown: Shutdown,
     ) -> Result<Self, Box<dyn Error + Send + Sync>>
     where
         Self: Sized,
@@ -50,7 +51,7 @@ impl PhysicalCluster {
             .map(|egress| (egress.endpoint().id(), egress))
             .collect::<HashMap<Id, Egress>>();
 
-        let ingress = Ingress::bind(local_endpoint).await?;
+        let ingress = Ingress::bind(local_endpoint, shutdown).await?;
 
         Ok(PhysicalCluster { egresses, ingress })
     }
@@ -78,7 +79,7 @@ impl Cluster for PhysicalCluster {
     async fn send(&self, member_id: &Id, message: Message) {
         match self.egresses.get(&member_id) {
             Some(egress) => egress.send(message.into()).await,
-            None => panic!("Missing member of id: {}", member_id),
+            None => panic!("Missing member of id: {}", member_id.0),
         }
     }
 

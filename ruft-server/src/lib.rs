@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use bytes::Bytes;
 use derive_more::Display;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tokio::sync::watch;
 
 use crate::automaton::Automaton;
 
@@ -132,5 +133,25 @@ impl<'de> Deserialize<'de> for SerializableBytes {
     {
         // TODO: &[u8]
         Vec::<u8>::deserialize(deserializer).map(|bytes| SerializableBytes(Bytes::from(bytes)))
+    }
+}
+
+#[derive(Clone)]
+struct Shutdown {
+    shutdown: watch::Receiver<()>,
+}
+
+impl Shutdown {
+    fn watch() -> Self {
+        let (shutdown_tx, shutdown_rx) = watch::channel(());
+        tokio::spawn(async move {
+            let _shutdown_tx = shutdown_tx;
+            tokio::signal::ctrl_c().await.expect("Failed to listen for event");
+        });
+        Shutdown { shutdown: shutdown_rx }
+    }
+
+    async fn receive(&mut self) -> () {
+        self.shutdown.changed().await.unwrap_or(())
     }
 }

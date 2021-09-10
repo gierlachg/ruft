@@ -15,7 +15,7 @@ use crate::cluster::{Cluster, PhysicalCluster};
 use crate::relay::protocol::Response;
 use crate::relay::PhysicalRelay;
 use crate::storage::volatile::VolatileStorage;
-use crate::{Endpoint, Id};
+use crate::{Endpoint, Id, Shutdown};
 
 mod candidate;
 mod follower;
@@ -36,17 +36,18 @@ impl Automaton {
         let election_timeout =
             Duration::from_millis(ELECTION_TIMEOUT_BASE_MILLIS + rand::thread_rng().gen_range(0..=250));
 
-        let id = local_endpoint.id();
+        let shutdown = Shutdown::watch();
 
         let mut storage = VolatileStorage::init();
         info!("Using {} storage", &storage);
 
-        let mut cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints).await?;
+        let mut cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints, shutdown.clone()).await?;
         info!("{}", &cluster);
 
-        let mut relay = PhysicalRelay::init(local_endpoint.client_address().clone()).await?;
+        let mut relay = PhysicalRelay::init(local_endpoint.client_address().clone(), shutdown).await?;
         info!("Listening for client connections on {}", &relay);
 
+        let id = local_endpoint.id();
         let mut state = if cluster.size() == 1 {
             State::LEADER { id, term: 1 }
         } else {

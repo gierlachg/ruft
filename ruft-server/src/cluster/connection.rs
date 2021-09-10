@@ -5,14 +5,13 @@ use std::sync::Arc;
 use bytes::Bytes;
 use derive_more::Display;
 use log::{error, trace};
-use tokio::signal;
-use tokio::sync::{mpsc, watch, Mutex};
+use tokio::sync::{mpsc, Mutex};
 use tokio::time;
 use tokio::time::Duration;
 
 use crate::cluster::protocol::Message;
 use crate::cluster::tcp::{Listener, Reader, Writer};
-use crate::Endpoint;
+use crate::{Endpoint, Shutdown};
 
 // TODO: configurable
 const RECONNECT_INTERVAL_MILLIS: u64 = 100;
@@ -74,28 +73,27 @@ pub(super) struct Ingress {
 }
 
 impl Ingress {
-    pub(super) async fn bind(endpoint: Endpoint) -> Result<Self, Box<dyn Error + Send + Sync>> {
+    pub(super) async fn bind(endpoint: Endpoint, shutdown: Shutdown) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let listener = Listener::bind(endpoint.address()).await?;
 
         let (tx, rx) = mpsc::unbounded_channel();
-        tokio::spawn(Self::listen(listener, tx));
+        tokio::spawn(Self::listen(listener, tx, shutdown));
         Ok(Ingress { endpoint, messages: rx })
     }
 
-    async fn listen(mut listener: Listener, messages: mpsc::UnboundedSender<Message>) {
-        let (_shutdown_tx, shutdown_rx) = watch::channel(());
+    async fn listen(mut listener: Listener, messages: mpsc::UnboundedSender<Message>, mut shutdown: Shutdown) {
         loop {
             tokio::select! {
                 result = listener.next() => match result {
-                    Ok(reader) => Self::on_connection(reader, messages.clone(), shutdown_rx.clone()),
+                    Ok(reader) => Self::on_connection(reader, messages.clone(), shutdown.clone()),
                     Err(e) => break trace!("Error accepting connection; error = {:?}", e),
                 },
-                _ = signal::ctrl_c() => break // TODO: dedup with relay signal
+                _ = shutdown.receive() => break
             }
         }
     }
 
-    fn on_connection(mut reader: Reader, messages: mpsc::UnboundedSender<Message>, mut shutdown: watch::Receiver<()>) {
+    fn on_connection(mut reader: Reader, messages: mpsc::UnboundedSender<Message>, mut shutdown: Shutdown) {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -107,7 +105,7 @@ impl Ingress {
                         Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint()),
                         None => break trace!("{} connection closed by peer.", &reader.endpoint()),
                     },
-                    _ = shutdown.changed() => break
+                    _ = shutdown.receive() => break
                 }
             }
         });
