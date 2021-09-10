@@ -11,7 +11,7 @@ const STORE_REQUEST_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_ID: u16 = 2;
 const STORE_REDIRECT_RESPONSE_ID: u16 = 3;
 
-#[derive(Serialize, Display)]
+#[derive(Display, Serialize)]
 #[repr(u16)]
 pub(crate) enum Request {
     #[display(fmt = "StoreRequest {{ }}")]
@@ -32,7 +32,7 @@ impl Into<Bytes> for &Request {
     }
 }
 
-#[derive(Deserialize, Display)]
+#[derive(Display, Deserialize)]
 #[repr(u16)]
 pub(crate) enum Response {
     #[display(fmt = "StoreSuccessResponse {{ }}")]

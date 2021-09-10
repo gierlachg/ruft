@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -99,10 +100,10 @@ impl Ingress {
             loop {
                 tokio::select! {
                     result = reader.read() => match result {
-                        Some(Ok(message)) => {
-                            let message = Message::from(message.freeze());
-                            messages.send(message).expect("This is unexpected!");
-                        }
+                        Some(Ok(bytes)) => match Message::try_from(bytes.freeze()) {
+                            Ok(message) => messages.send(message).expect("This is unexpected!"),
+                            Err(e) => break error!("Parsing error; error = {:?}. Closing {} connection.", e, &reader.endpoint()),
+                        },
                         Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint()),
                         None => break trace!("{} connection closed by peer.", &reader.endpoint()),
                     },

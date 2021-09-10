@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 
 pub(crate) mod volatile;
 
@@ -29,7 +30,7 @@ pub(crate) trait Storage {
     async fn next<'a>(&'a self, preceding_position: &Position) -> Option<(&'a Position, &'a Bytes)>;
 }
 
-#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Position(u64, u64);
 
 impl Position {

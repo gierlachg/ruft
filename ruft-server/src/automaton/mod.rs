@@ -91,7 +91,7 @@ impl Automaton {
     }
 }
 
-#[derive(Eq, PartialEq, Display, Debug)]
+#[derive(PartialEq, Eq, Display, Debug)]
 enum State {
     #[display(fmt = "LEADER {{ id: {}, term: {} }}", id, term)]
     LEADER { id: Id, term: u64 },

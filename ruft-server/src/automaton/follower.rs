@@ -66,7 +66,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         #[rustfmt::skip]
         match message {
             AppendRequest { leader_id, preceding_position, term, entries } => {
-                self.on_append_request(leader_id, preceding_position, term, entries).await
+                self.on_append_request(leader_id, preceding_position, term, entries.into_iter().map(|entry| entry.0).collect()).await // TODO: avoid mapping
             },
             VoteRequest { candidate_id, term, position } => {
                 self.on_vote_request(candidate_id, term, position).await

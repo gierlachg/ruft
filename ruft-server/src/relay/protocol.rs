@@ -3,15 +3,16 @@ use std::net::SocketAddr;
 
 use bytes::Bytes;
 use derive_more::Display;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::relay::protocol::Response::{StoreRedirectResponse, StoreSuccessResponse};
+use crate::SerializableBytes;
 
 const STORE_REQUEST_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_ID: u16 = 2;
 const STORE_REDIRECT_RESPONSE_ID: u16 = 3;
 
-#[derive(Deserialize, Display, Debug)]
+#[derive(Display, Debug, Deserialize)]
 #[repr(u16)]
 pub(crate) enum Request {
     #[display(fmt = "StoreRequest {{ }}")]
@@ -26,7 +27,7 @@ impl TryFrom<Bytes> for Request {
     }
 }
 
-#[derive(Serialize, Display)]
+#[derive(Display, Serialize)]
 #[repr(u16)]
 pub(crate) enum Response {
     #[display(fmt = "StoreSuccessResponse {{ }}")]
@@ -49,18 +50,5 @@ impl Response {
 impl Into<Bytes> for Response {
     fn into(self) -> Bytes {
         Bytes::from(bincode::serialize(&self).unwrap()) // TODO: try_into ?
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct SerializableBytes(pub(crate) Bytes);
-
-impl<'de> Deserialize<'de> for SerializableBytes {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // TODO: &[u8]
-        Vec::<u8>::deserialize(deserializer).map(|bytes| SerializableBytes(Bytes::from(bytes)))
     }
 }

@@ -5,9 +5,10 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::hash::Hash;
 use std::net::SocketAddr;
-use std::ops::Deref;
 
+use bytes::Bytes;
 use derive_more::Display;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::automaton::Automaton;
 
@@ -41,23 +42,15 @@ impl RuftServer {
     }
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Clone, Copy, Display, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Display, Debug, Serialize, Deserialize)]
 #[display(fmt = "{:?}", _0)]
 struct Id(u8);
 
 impl Id {
-    pub const MAX: u8 = u8::MAX;
+    const MAX: u8 = u8::MAX;
 }
 
-impl Deref for Id {
-    type Target = u8;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, Display)]
+#[derive(PartialEq, Eq, Clone, Display)]
 #[display(fmt = "{{ id: {}, address: {}, client_address: {} }}", id, address, client_address)]
 struct Endpoint {
     id: Id,
@@ -118,4 +111,26 @@ fn to_endpoints(
     let local_endpoint = remote_endpoints.remove(local_endpoint_position);
 
     (local_endpoint, remote_endpoints)
+}
+
+#[derive(PartialEq, Debug)]
+struct SerializableBytes(Bytes);
+
+impl Serialize for SerializableBytes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(self.0.as_ref())
+    }
+}
+
+impl<'de> Deserialize<'de> for SerializableBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // TODO: &[u8]
+        Vec::<u8>::deserialize(deserializer).map(|bytes| SerializableBytes(Bytes::from(bytes)))
+    }
 }
