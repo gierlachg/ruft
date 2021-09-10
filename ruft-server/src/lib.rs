@@ -142,10 +142,20 @@ fn to_endpoints(
     (local_endpoint, remote_endpoints)
 }
 
-#[derive(PartialEq, Debug)]
-struct SerializableBytes(Bytes);
+#[derive(PartialEq, Clone, Debug)]
+struct Payload(Bytes);
 
-impl Serialize for SerializableBytes {
+impl Payload {
+    fn from_static(bytes: &'static [u8]) -> Self {
+        Payload(Bytes::from_static(bytes))
+    }
+
+    fn from(bytes: Vec<u8>) -> Self {
+        Payload(Bytes::from(bytes))
+    }
+}
+
+impl Serialize for Payload {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -154,13 +164,13 @@ impl Serialize for SerializableBytes {
     }
 }
 
-impl<'de> Deserialize<'de> for SerializableBytes {
+impl<'de> Deserialize<'de> for Payload {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         // TODO: &[u8]
-        Vec::<u8>::deserialize(deserializer).map(|bytes| SerializableBytes(Bytes::from(bytes)))
+        Vec::<u8>::deserialize(deserializer).map(|bytes| Payload::from(bytes))
     }
 }
 

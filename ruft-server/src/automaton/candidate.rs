@@ -133,7 +133,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use bytes::Bytes;
     use mockall::mock;
     use mockall::predicate::eq;
     use tokio::sync::mpsc;
@@ -142,7 +141,7 @@ mod tests {
     use crate::cluster::protocol::Message;
     use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
-    use crate::{Endpoint, Id};
+    use crate::{Endpoint, Id, Payload};
 
     use super::*;
 
@@ -393,10 +392,10 @@ mod tests {
         #[async_trait]
         trait Storage {
             fn head(&self) -> &Position;
-            async fn extend(&mut self, term: u64, entries: Vec<Bytes>) -> Position;
-            async fn insert(&mut self, preceding_position: &Position, term: u64, entries: Vec<Bytes>) -> Result<Position, Position>;
-            async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Bytes)>;
-            async fn next<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Bytes)>;
+            async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position;
+            async fn insert(&mut self, preceding_position: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position>;
+            async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
+            async fn next<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
         }
     }
 

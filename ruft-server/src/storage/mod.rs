@@ -1,33 +1,34 @@
 use std::cmp::Ordering;
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+
+use crate::Payload;
 
 pub(crate) mod volatile;
 
-pub(crate) fn noop_message() -> Bytes {
-    Bytes::from_static(&[])
+pub(crate) fn noop_message() -> Payload {
+    Payload::from_static(&[])
 }
 
 #[async_trait]
 pub(crate) trait Storage {
     fn head(&self) -> &Position;
 
-    async fn extend(&mut self, term: u64, entries: Vec<Bytes>) -> Position;
+    async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position;
 
     async fn insert(
         &mut self,
         preceding_position: &Position,
         term: u64,
-        entries: Vec<Bytes>,
+        entries: Vec<Payload>,
     ) -> Result<Position, Position>;
 
     #[allow(clippy::needless_lifetimes)]
-    async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Bytes)>;
+    async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
 
     #[allow(clippy::needless_lifetimes)]
-    async fn next<'a>(&'a self, preceding_position: &Position) -> Option<(&'a Position, &'a Bytes)>;
+    async fn next<'a>(&'a self, preceding_position: &Position) -> Option<(&'a Position, &'a Payload)>;
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]

@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 
 use bytes::Bytes;
 use log::info;
+use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 use crate::relay::protocol::Request;
@@ -29,9 +30,30 @@ impl RuftClient {
         Ok(RuftClient { relay })
     }
 
-    pub async fn store(&mut self, payload: Bytes) -> Result<()> {
+    pub async fn store(&mut self, payload: Payload) -> Result<()> {
         let request = Request::store_request(payload);
         self.relay.send(request).await
+    }
+}
+
+pub struct Payload(Bytes);
+
+impl Payload {
+    pub fn from_static(bytes: &'static [u8]) -> Self {
+        Payload(Bytes::from_static(bytes))
+    }
+
+    pub fn from(bytes: Vec<u8>) -> Self {
+        Payload(Bytes::from(bytes))
+    }
+}
+
+impl Serialize for Payload {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(self.0.as_ref())
     }
 }
 

@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use log::info;
 use tokio::time::{self, Duration};
 
@@ -9,7 +8,7 @@ use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
 use crate::relay::Relay;
 use crate::storage::{Position, Storage};
-use crate::Id;
+use crate::{Id, Payload};
 
 pub(super) struct Follower<'a, S: Storage, C: Cluster, R: Relay> {
     id: Id,
@@ -66,7 +65,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         #[rustfmt::skip]
         match message {
             AppendRequest { leader_id, preceding_position, term, entries } => {
-                self.on_append_request(leader_id, preceding_position, term, entries.into_iter().map(|entry| entry.0).collect()).await // TODO: avoid mapping
+                self.on_append_request(leader_id, preceding_position, term, entries).await
             },
             VoteRequest { candidate_id, term, position } => {
                 self.on_vote_request(candidate_id, term, position).await
@@ -75,7 +74,13 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         }
     }
 
-    async fn on_append_request(&mut self, leader_id: Id, preceding_position: Position, term: u64, entries: Vec<Bytes>) {
+    async fn on_append_request(
+        &mut self,
+        leader_id: Id,
+        preceding_position: Position,
+        term: u64,
+        entries: Vec<Payload>,
+    ) {
         if term > self.term {
             // TODO: possible double vote (in conjunction with VoteRequest actions) ?
             self.term = term;
@@ -127,7 +132,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use bytes::Bytes;
     use mockall::{mock, predicate};
     use predicate::eq;
     use tokio::sync::mpsc;
@@ -136,7 +140,7 @@ mod tests {
     use crate::cluster::protocol::Message;
     use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
-    use crate::{Endpoint, Id};
+    use crate::{Endpoint, Id, Payload};
 
     use super::*;
 
@@ -149,7 +153,7 @@ mod tests {
     async fn when_append_request_successful_insert_then_update_and_respond() {
         // given
         let position = Position::of(0, 0);
-        let entries = vec![Bytes::from(vec![1])];
+        let entries = vec![Payload::from_static(&[1])];
 
         let (mut storage, mut cluster, mut relay) = infrastructure();
 
@@ -183,7 +187,7 @@ mod tests {
     async fn when_append_request_erroneous_insert_then_update_and_respond() {
         // given
         let position = Position::of(1, 0);
-        let entries = vec![Bytes::from(vec![1])];
+        let entries = vec![Payload::from_static(&[1])];
 
         let (mut storage, mut cluster, mut relay) = infrastructure();
 
@@ -296,10 +300,10 @@ mod tests {
         #[async_trait]
         trait Storage {
             fn head(&self) -> &Position;
-            async fn extend(&mut self, term: u64, entries: Vec<Bytes>) -> Position;
-            async fn insert(&mut self, preceding_position: &Position, term: u64, entries: Vec<Bytes>) -> Result<Position, Position>;
-            async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Bytes)>;
-            async fn next<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Bytes)>;
+            async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position;
+            async fn insert(&mut self, preceding_position: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position>;
+            async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
+            async fn next<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
         }
     }
 

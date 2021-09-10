@@ -1,14 +1,13 @@
 use std::collections::BTreeMap;
-use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{self, Display, Formatter};
 
 use async_trait::async_trait;
-use bytes::Bytes;
 
 use crate::storage::{noop_message, Position, Storage};
+use crate::Payload;
 
 pub(crate) struct VolatileStorage {
-    entries: BTreeMap<Position, Bytes>,
+    entries: BTreeMap<Position, Payload>,
 }
 
 impl VolatileStorage {
@@ -29,7 +28,7 @@ impl Storage for VolatileStorage {
         }
     }
 
-    async fn extend(&mut self, term: u64, entries: Vec<Bytes>) -> Position {
+    async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position {
         assert!(term > 0);
 
         match self.entries.iter().next_back() {
@@ -51,7 +50,7 @@ impl Storage for VolatileStorage {
         &mut self,
         preceding_position: &Position,
         term: u64,
-        entries: Vec<Bytes>,
+        entries: Vec<Payload>,
     ) -> Result<Position, Position> {
         assert!(term > 0);
 
@@ -81,7 +80,7 @@ impl Storage for VolatileStorage {
     }
 
     #[allow(clippy::needless_lifetimes)]
-    async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Bytes)> {
+    async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)> {
         self.entries
             .range(..position)
             .next_back()
@@ -90,7 +89,7 @@ impl Storage for VolatileStorage {
     }
 
     #[allow(clippy::needless_lifetimes)]
-    async fn next<'a>(&'a self, preceding_position: &Position) -> Option<(&'a Position, &'a Bytes)> {
+    async fn next<'a>(&'a self, preceding_position: &Position) -> Option<(&'a Position, &'a Payload)> {
         self.entries
             .range(preceding_position..)
             .into_iter()
@@ -258,7 +257,7 @@ mod tests {
         let mut storage = VolatileStorage::init();
 
         storage
-            .extend(5, vec![Bytes::from_static(&[1]), Bytes::from_static(&[2])])
+            .extend(5, vec![Payload::from_static(&[1]), Payload::from_static(&[2])])
             .await;
         storage.extend(10, entries(3)).await;
 
@@ -301,11 +300,11 @@ mod tests {
         );
     }
 
-    fn entries(value: u8) -> Vec<Bytes> {
+    fn entries(value: u8) -> Vec<Payload> {
         vec![bytes(value)]
     }
 
-    fn bytes(value: u8) -> Bytes {
-        Bytes::from(vec![value])
+    fn bytes(value: u8) -> Payload {
+        Payload::from(vec![value])
     }
 }

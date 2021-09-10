@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cluster::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::storage::Position;
-use crate::{Id, SerializableBytes};
+use crate::{Id, Payload};
 
 const APPEND_REQUEST_MESSAGE_ID: u16 = 1;
 const APPEND_RESPONSE_MESSAGE_ID: u16 = 2;
@@ -26,7 +26,7 @@ pub(crate) enum Message {
         leader_id: Id,
         preceding_position: Position,
         term: u64,
-        entries: Vec<SerializableBytes>,
+        entries: Vec<Payload>,
     } = APPEND_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
@@ -58,13 +58,18 @@ pub(crate) enum Message {
 }
 
 impl Message {
-    pub(crate) fn append_request(leader_id: Id, preceding_position: Position, term: u64, entries: Vec<Bytes>) -> Self {
+    pub(crate) fn append_request(
+        leader_id: Id,
+        preceding_position: Position,
+        term: u64,
+        entries: Vec<Payload>,
+    ) -> Self {
         // TODO committed
         AppendRequest {
             leader_id,
             preceding_position,
             term,
-            entries: entries.into_iter().map(|entry| SerializableBytes(entry)).collect(), // TODO: avoid mapping
+            entries,
         }
     }
 

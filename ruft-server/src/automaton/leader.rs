@@ -184,7 +184,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         // TODO: store in exchanges ? leadership lost...
         match request {
             StoreRequest { payload } => {
-                let position = self.storage.extend(self.term, vec![payload.0]).await; // TODO: replicate, get rid of vec!
+                let position = self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
                 self.replicator.on_client_request(position, responder);
             }
         }
@@ -253,7 +253,6 @@ impl Replicator {
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use bytes::Bytes;
     use lazy_static::lazy_static;
     use mockall::{mock, predicate};
     use predicate::eq;
@@ -263,7 +262,7 @@ mod tests {
     use crate::cluster::protocol::Message;
     use crate::relay::protocol::{Request, Response};
     use crate::storage::Position;
-    use crate::{Endpoint, Id};
+    use crate::{Endpoint, Id, Payload};
 
     use super::*;
 
@@ -275,7 +274,7 @@ mod tests {
     lazy_static! {
         static ref PRECEDING_POSITION: Position = Position::of(TERM - 1, 0);
         static ref POSITION: Position = Position::of(TERM, 0);
-        static ref ENTRY: Bytes = Bytes::from(vec![1]);
+        static ref ENTRY: Payload = Payload::from_static(&[1]);
     }
 
     #[ignore]
@@ -611,10 +610,10 @@ mod tests {
         #[async_trait]
         trait Storage {
             fn head(&self) -> &Position;
-            async fn extend(&mut self, term: u64, entries: Vec<Bytes>) -> Position;
-            async fn insert(&mut self, preceding_position: &Position, term: u64, entries: Vec<Bytes>) -> Result<Position, Position>;
-            async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Bytes)>;
-            async fn next<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Bytes)>;
+            async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position;
+            async fn insert(&mut self, preceding_position: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position>;
+            async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
+            async fn next<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
         }
     }
 

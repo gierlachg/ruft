@@ -14,7 +14,7 @@ use crate::{Result, RuftClientError};
 
 mod broker;
 mod connector;
-pub(crate) mod protocol;
+pub(crate) mod protocol; // TODO:
 mod tcp;
 
 type Sender = mpsc::UnboundedSender<(Request, Responder)>;

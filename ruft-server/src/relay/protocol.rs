@@ -6,7 +6,7 @@ use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::relay::protocol::Response::{StoreRedirectResponse, StoreSuccessResponse};
-use crate::SerializableBytes;
+use crate::Payload;
 
 const STORE_REQUEST_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_ID: u16 = 2;
@@ -16,7 +16,7 @@ const STORE_REDIRECT_RESPONSE_ID: u16 = 3;
 #[repr(u16)]
 pub(crate) enum Request {
     #[display(fmt = "StoreRequest {{ }}")]
-    StoreRequest { payload: SerializableBytes } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    StoreRequest { payload: Payload } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl TryFrom<Bytes> for Request {

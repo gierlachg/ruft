@@ -3,9 +3,10 @@ use std::net::SocketAddr;
 
 use bytes::Bytes;
 use derive_more::Display;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use crate::relay::protocol::Request::StoreRequest;
+use crate::Payload;
 
 const STORE_REQUEST_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_ID: u16 = 2;
@@ -15,14 +16,12 @@ const STORE_REDIRECT_RESPONSE_ID: u16 = 3;
 #[repr(u16)]
 pub(crate) enum Request {
     #[display(fmt = "StoreRequest {{ }}")]
-    StoreRequest { payload: SerializableBytes } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    StoreRequest { payload: Payload } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Request {
-    pub(crate) fn store_request(payload: Bytes) -> Self {
-        StoreRequest {
-            payload: SerializableBytes(payload),
-        }
+    pub(crate) fn store_request(payload: Payload) -> Self {
+        StoreRequest { payload }
     }
 }
 
@@ -47,16 +46,5 @@ impl TryFrom<Bytes> for Response {
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
         bincode::deserialize(bytes.as_ref()).map_err(|_| ()) // TODO: error
-    }
-}
-
-pub(crate) struct SerializableBytes(Bytes);
-
-impl Serialize for SerializableBytes {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(self.0.as_ref())
     }
 }
