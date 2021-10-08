@@ -12,7 +12,6 @@ use derive_more::Display;
 use log::info;
 use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use tokio::sync::watch;
 
 use crate::cluster::PhysicalCluster;
 use crate::relay::PhysicalRelay;
@@ -160,12 +159,12 @@ impl<'de> Deserialize<'de> for Payload {
 
 #[derive(Clone)]
 struct Shutdown {
-    shutdown: watch::Receiver<()>,
+    shutdown: tokio::sync::watch::Receiver<()>,
 }
 
 impl Shutdown {
     fn watch() -> Self {
-        let (shutdown_tx, shutdown_rx) = watch::channel(());
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
         tokio::spawn(async move {
             let _shutdown_tx = shutdown_tx;
             tokio::signal::ctrl_c().await.expect("Failed to listen for event");
@@ -174,6 +173,7 @@ impl Shutdown {
     }
 
     async fn receive(&mut self) -> () {
+        // safety: error indicates ctrl-c already received, return anyway
         self.shutdown.changed().await.unwrap_or(())
     }
 }

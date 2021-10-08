@@ -1,5 +1,6 @@
+use std::time::Duration;
+
 use log::info;
-use tokio::time::{self, Duration};
 
 use crate::automaton::State::{CANDIDATE, TERMINATED};
 use crate::automaton::{Responder, State};
@@ -46,7 +47,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
     pub(super) async fn run(&mut self) -> State {
         loop {
             tokio::select! {
-                _ = time::sleep(self.election_timeout) => {
+                _ = tokio::time::sleep(self.election_timeout) => {
                     break CANDIDATE { id: self.id, term: self.term }
                 },
                 message = self.cluster.messages() => match message {

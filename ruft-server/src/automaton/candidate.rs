@@ -1,4 +1,4 @@
-use tokio::time::{self, Duration, Instant};
+use std::time::Duration;
 
 use crate::automaton::State::TERMINATED;
 use crate::automaton::{Responder, State};
@@ -44,7 +44,10 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     pub(super) async fn run(&mut self) -> State {
         self.on_election_timeout().await;
 
-        let mut election_timer = time::interval_at(Instant::now() + self.election_timeout, self.election_timeout);
+        let mut election_timer = tokio::time::interval_at(
+            tokio::time::Instant::now() + self.election_timeout,
+            self.election_timeout,
+        );
         loop {
             tokio::select! {
                 _ = election_timer.tick() => {

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use tokio::time::{self, Duration};
 
 use crate::automaton::State::TERMINATED;
 use crate::automaton::{Responder, State};
@@ -56,7 +56,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             Position::of(self.term, 0)
         );
 
-        let mut ticker = time::interval(self.heartbeat_interval);
+        let mut ticker = tokio::time::interval(self.heartbeat_interval);
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
