@@ -139,7 +139,6 @@ mod tests {
     use mockall::mock;
     use mockall::predicate::eq;
     use tokio::sync::mpsc;
-    use tokio::time::Duration;
 
     use crate::cluster::protocol::Message;
     use crate::relay::protocol::{Request, Response};

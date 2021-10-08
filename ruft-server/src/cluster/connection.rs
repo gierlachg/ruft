@@ -1,13 +1,12 @@
 use std::convert::TryFrom;
 use std::error::Error;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use derive_more::Display;
 use log::{error, trace};
 use tokio::sync::{mpsc, Mutex};
-use tokio::time;
-use tokio::time::Duration;
 
 use crate::cluster::protocol::Message;
 use crate::cluster::tcp::{Listener, Reader, Writer};
@@ -59,7 +58,7 @@ impl Egress {
                     holder.lock().await.replace(writer);
                     break;
                 }
-                time::sleep(Duration::from_millis(RECONNECT_INTERVAL_MILLIS)).await;
+                tokio::time::sleep(Duration::from_millis(RECONNECT_INTERVAL_MILLIS)).await;
             }
         });
     }
@@ -69,7 +68,7 @@ impl Egress {
 #[display(fmt = "{} this", endpoint)]
 pub(super) struct Ingress {
     endpoint: Endpoint,
-    messages: mpsc::UnboundedReceiver<Message>,
+    messages: tokio::sync::mpsc::UnboundedReceiver<Message>,
 }
 
 impl Ingress {

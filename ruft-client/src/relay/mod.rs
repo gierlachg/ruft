@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{self, Duration};
 
 use crate::relay::broker::Broker;
 use crate::relay::connector::Connector;
@@ -27,7 +27,7 @@ pub(super) struct Relay {
 
 impl Relay {
     pub(super) async fn init(endpoints: Vec<SocketAddr>, connection_timeout_millis: u64) -> Result<Self> {
-        let connection = time::timeout(
+        let connection = tokio::time::timeout(
             Duration::from_millis(connection_timeout_millis),
             Box::pin(connect(&endpoints)).next(),
         )

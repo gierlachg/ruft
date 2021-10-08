@@ -1,9 +1,8 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use derive_more::Display;
 use log::info;
-use tokio::sync::mpsc;
-use tokio::time::Duration;
 
 use crate::automaton::candidate::Candidate;
 use crate::automaton::follower::Follower;
@@ -91,7 +90,7 @@ impl State {
     }
 }
 
-struct Responder(mpsc::UnboundedSender<Response>);
+struct Responder(tokio::sync::mpsc::UnboundedSender<Response>);
 
 impl Responder {
     fn respond_with_success(self) {
