@@ -28,27 +28,15 @@ const HEARTBEAT_INTERVAL_MILLIS: u64 = 20;
 const ELECTION_TIMEOUT_BASE_MILLIS: u64 = 250;
 
 pub async fn run(
-    local_endpoint: SocketAddr,
-    local_client_endpoint: SocketAddr,
-    remote_endpoints: Vec<SocketAddr>,
-    remote_client_endpoints: Vec<SocketAddr>,
+    local: (SocketAddr, SocketAddr),
+    remotes: Vec<(SocketAddr, SocketAddr)>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    assert_eq!(
-        remote_endpoints.len(),
-        remote_client_endpoints.len(),
-        "Remote endpoints and remote client endpoints lists differ in length"
-    );
-
-    let (local_endpoint, remote_endpoints) = to_endpoints(
-        local_endpoint,
-        local_client_endpoint,
-        remote_endpoints,
-        remote_client_endpoints,
-    );
+    info!("Initializing Ruft server (version: {})", env!("CARGO_PKG_VERSION"));
 
     let heartbeat_interval = Duration::from_millis(HEARTBEAT_INTERVAL_MILLIS);
     let election_timeout = Duration::from_millis(ELECTION_TIMEOUT_BASE_MILLIS + rand::thread_rng().gen_range(0..=250));
 
+    let (local_endpoint, remote_endpoints) = to_endpoints(local, remotes);
     let shutdown = Shutdown::watch();
 
     let storage = VolatileStorage::init();
@@ -68,7 +56,11 @@ pub async fn run(
         cluster,
         relay,
     )
-    .await
+    .await;
+
+    info!("Ruft server shut down.");
+
+    Ok(())
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Display, Debug, Serialize, Deserialize)]
@@ -110,22 +102,14 @@ impl Endpoint {
 }
 
 // TODO: better id assignment... ?
-fn to_endpoints(
-    local_endpoint: SocketAddr,
-    local_client_endpoint: SocketAddr,
-    remote_endpoints: Vec<SocketAddr>,
-    remote_client_endpoints: Vec<SocketAddr>,
-) -> (Endpoint, Vec<Endpoint>) {
-    let mut endpoints: Vec<(SocketAddr, SocketAddr)> = [
-        vec![(local_endpoint, local_client_endpoint)],
-        remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
-    ]
-    .concat();
+fn to_endpoints(local: (SocketAddr, SocketAddr), remotes: Vec<(SocketAddr, SocketAddr)>) -> (Endpoint, Vec<Endpoint>) {
     assert!(
-        endpoints.len() <= usize::from(Id::MAX),
+        remotes.len() < usize::from(Id::MAX),
         "Number of members exceeds maximum supported ({})",
         Id::MAX
     );
+
+    let mut endpoints: Vec<(SocketAddr, SocketAddr)> = [vec![local], remotes].concat();
 
     endpoints.sort_by(|left, right| left.0.cmp(&right.0));
     let mut remote_endpoints = endpoints
@@ -135,7 +119,7 @@ fn to_endpoints(
         .collect::<Vec<_>>();
     let local_endpoint_position = remote_endpoints
         .iter()
-        .position(|endpoint| endpoint.address == local_endpoint)
+        .position(|endpoint| endpoint.address == local.0)
         .expect("Where did local endpoint go?!");
     let local_endpoint = remote_endpoints.remove(local_endpoint_position);
 

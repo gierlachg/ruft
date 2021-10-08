@@ -64,10 +64,8 @@ fn spawn_node(
 ) {
     tokio::spawn(async move {
         ruft_server::run(
-            local_endpoint,
-            local_client_endpoint,
-            remote_endpoints,
-            remote_client_endpoints,
+            (local_endpoint, local_client_endpoint),
+            remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
         )
         .await
     });

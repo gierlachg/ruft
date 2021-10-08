@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::net::SocketAddr;
 
 use derive_more::Display;
@@ -27,7 +26,7 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
     mut storage: S,
     mut cluster: C,
     mut relay: R,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) {
     let mut state = if cluster.size() == 1 {
         State::LEADER { id, term: 1 }
     } else {
@@ -68,7 +67,6 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
         };
         info!("Switching over to: {}", state);
     }
-    Ok(())
 }
 
 #[derive(PartialEq, Eq, Display, Debug)]

@@ -3,12 +3,11 @@ use std::fs;
 use std::net::SocketAddr;
 
 use clap::{App, Arg, ArgMatches};
-use log::{info, LevelFilter};
+use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Root};
 use tokio;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 const LOCAL_ENDPOINT: &str = "local endpoint";
 const LOCAL_CLIENT_ENDPOINT: &str = "local client endpoint";
 const REMOTE_ENDPOINTS: &str = "remote endpoints";
@@ -41,21 +40,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     init_logging();
 
-    info!("Initializing Ruft server (version: {})", VERSION);
     ruft_server::run(
-        local_endpoint,
-        local_client_endpoint,
-        remote_endpoints,
-        remote_client_endpoints,
+        (local_endpoint, local_client_endpoint),
+        remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
     )
-    .await?;
-    info!("Ruft server shut down.");
-    Ok(())
+    .await
 }
 
 fn parse_arguments() -> ArgMatches<'static> {
     App::new(env!("CARGO_PKG_DESCRIPTION"))
-        .version(VERSION)
+        .version(env!("CARGO_PKG_VERSION"))
         .arg(
             Arg::with_name(LOCAL_ENDPOINT)
                 .required(true)
