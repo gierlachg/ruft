@@ -7,10 +7,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::StreamExt;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
+use crate::relay::Error;
+
 const LENGTH_FIELD_OFFSET: usize = 0;
 const LENGTH_FIELD_LENGTH: usize = 4;
-
-type Error = Box<dyn std::error::Error + Send + Sync>;
 
 pub(super) struct Connections {
     listener: TcpListener,
@@ -39,10 +39,6 @@ pub(super) struct Connection {
 }
 
 impl Connection {
-    pub(super) fn endpoint(&self) -> &SocketAddr {
-        &self.endpoint
-    }
-
     pub(super) async fn write(&mut self, message: Bytes) -> Result<(), std::io::Error> {
         self.stream.send(message).await
     }

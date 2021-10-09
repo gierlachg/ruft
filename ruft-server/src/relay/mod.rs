@@ -1,12 +1,10 @@
 use std::convert::TryFrom;
-use std::error::Error;
-use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{self, Display, Formatter};
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use log::{error, trace};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::relay::protocol::{Request, Response};
 use crate::relay::tcp::{Connection, Connections};
@@ -15,12 +13,14 @@ use crate::Shutdown;
 pub(crate) mod protocol;
 mod tcp;
 
-type Sender = mpsc::UnboundedSender<(Request, mpsc::UnboundedSender<Response>)>;
-type Receiver = mpsc::UnboundedReceiver<(Request, mpsc::UnboundedSender<Response>)>;
+type Error = Box<dyn std::error::Error + Send + Sync>;
+
+type Sender = UnboundedSender<(Request, UnboundedSender<Response>)>;
+type Receiver = UnboundedReceiver<(Request, UnboundedSender<Response>)>;
 
 #[async_trait]
 pub(crate) trait Relay {
-    async fn requests(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)>;
+    async fn requests(&mut self) -> Option<(Request, UnboundedSender<Response>)>;
 }
 
 pub(crate) struct PhysicalRelay {
@@ -29,7 +29,7 @@ pub(crate) struct PhysicalRelay {
 }
 
 impl PhysicalRelay {
-    pub(crate) async fn init(endpoint: SocketAddr, shutdown: Shutdown) -> Result<Self, Box<dyn Error + Send + Sync>>
+    pub(crate) async fn init(endpoint: SocketAddr, shutdown: Shutdown) -> Result<Self, Error>
     where
         Self: Sized,
     {
@@ -69,10 +69,10 @@ impl PhysicalRelay {
                             Err(e) => break error!("Parsing error; error = {:?}. Closing {} connection.", e, &connection),
                         }
                         Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &connection),
-                        None => break trace!("{} connection closed by peer.", &connection.endpoint()),
+                        None => break trace!("{} connection closed by peer.", &connection),
                     },
                     result = rx.recv() => if let Err(e) = connection.write(result.expect("This is unexpected!").into()).await {
-                        break error!("Unable to respond {}; error = {:?}.", &connection, e)
+                        break error!("Unable to respond to {}; error = {:?}.", &connection, e)
                     },
                     _ = shutdown.receive() => break
                 }
@@ -83,7 +83,7 @@ impl PhysicalRelay {
 
 #[async_trait]
 impl Relay for PhysicalRelay {
-    async fn requests(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)> {
+    async fn requests(&mut self) -> Option<(Request, UnboundedSender<Response>)> {
         self.requests.recv().await
     }
 }

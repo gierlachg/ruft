@@ -84,6 +84,7 @@ impl Exchanges {
 
     fn enqueue(&mut self, request: Request, responder: Responder) -> &Exchange {
         self.0.push_front(Exchange(request, responder));
+        // safety: just pushed
         self.0.front().unwrap()
     }
 

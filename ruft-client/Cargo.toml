@@ -6,8 +6,8 @@ authors = ["Grzegorz Gierlach <gierlachg@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-thiserror = "^1"
-derive_more = "^0.99"
+thiserror = "1"
+derive_more = "0.99"
 
 log = "0.4"
 log4rs = "1"
