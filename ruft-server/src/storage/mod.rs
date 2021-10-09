@@ -24,11 +24,9 @@ pub(crate) trait Storage {
         entries: Vec<Payload>,
     ) -> Result<Position, Position>;
 
-    #[allow(clippy::needless_lifetimes)]
-    async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
+    async fn at(&self, position: &Position) -> Option<(&Position, &Payload)>;
 
-    #[allow(clippy::needless_lifetimes)]
-    async fn next<'a>(&'a self, preceding_position: &Position) -> Option<(&'a Position, &'a Payload)>;
+    async fn next(&self, preceding_position: &Position) -> Option<(&Position, &Payload)>;
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
