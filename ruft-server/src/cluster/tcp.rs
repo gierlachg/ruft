@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 
 use bytes::{Bytes, BytesMut};
@@ -58,11 +59,13 @@ pub(crate) struct Reader {
 }
 
 impl Reader {
-    pub(crate) fn endpoint(&self) -> &SocketAddr {
-        &self.endpoint
-    }
-
     pub(crate) async fn read(&mut self) -> Option<Result<BytesMut, std::io::Error>> {
         self.reader.next().await
+    }
+}
+
+impl Display for &Reader {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.endpoint)
     }
 }

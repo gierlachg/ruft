@@ -35,10 +35,6 @@ impl Egress {
         Egress { endpoint, writer }
     }
 
-    pub(super) fn endpoint(&self) -> &Endpoint {
-        &self.endpoint
-    }
-
     pub(super) async fn send(&self, message: Bytes) {
         let mut holder = self.writer.lock().await;
         if let Some(writer) = holder.as_mut() {
@@ -61,6 +57,10 @@ impl Egress {
                 tokio::time::sleep(Duration::from_millis(RECONNECT_INTERVAL_MILLIS)).await;
             }
         });
+    }
+
+    pub(super) fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
     }
 }
 
@@ -99,10 +99,10 @@ impl Ingress {
                     result = reader.read() => match result {
                         Some(Ok(bytes)) => match Message::try_from(bytes.freeze()) {
                             Ok(message) => messages.send(message).expect("This is unexpected!"),
-                            Err(e) => break error!("Parsing error; error = {:?}. Closing {} connection.", e, &reader.endpoint()),
+                            Err(e) => break error!("Parsing error; error = {:?}. Closing {} connection.", e, &reader),
                         },
-                        Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &reader.endpoint()),
-                        None => break trace!("{} connection closed by peer.", &reader.endpoint()),
+                        Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &reader),
+                        None => break trace!("{} connection closed by peer.", &reader),
                     },
                     _ = shutdown.receive() => break
                 }
@@ -110,11 +110,11 @@ impl Ingress {
         });
     }
 
-    pub(super) fn endpoint(&self) -> &Endpoint {
-        &self.endpoint
-    }
-
     pub(super) async fn next(&mut self) -> Option<Message> {
         self.messages.recv().await
+    }
+
+    pub(super) fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
     }
 }
