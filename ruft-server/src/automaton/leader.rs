@@ -78,9 +78,9 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     async fn on_tick(&mut self) {
         let futures = self
             .replicator
-            .next_positions
+            .positions
             .iter()
-            .map(|(member_id, position)| self.replicate_or_heartbeat(member_id, position.as_ref()))
+            .map(|(member_id, (next_position, _))| self.replicate_or_heartbeat(member_id, next_position.as_ref()))
             .collect::<Vec<_>>();
         join_all(futures).await;
     }
@@ -167,7 +167,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                     vec![entry.clone()],
                 );
                 self.cluster.send(&member_id, message).await;
-                self.replicator.on_success(&member_id, preceding_position, None);
+                self.replicator
+                    .on_success(&member_id, preceding_position, Some(position));
             }
             None
         } else {
@@ -230,8 +231,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 struct Replicator {
     // TODO: sent recently
     majority: usize,
-    next_positions: HashMap<Id, Option<Position>>,
-    replicated_positions: HashMap<Id, Option<Position>>,
+    positions: HashMap<Id, (Option<Position>, Option<Position>)>,
     responders: HashMap<Position, Responder>,
 }
 
@@ -239,15 +239,10 @@ impl Replicator {
     fn new(cluster: &dyn Cluster, init_position: Position) -> Self {
         Replicator {
             majority: cluster.size() / 2, // TODO:
-            next_positions: cluster
+            positions: cluster
                 .member_ids()
                 .into_iter()
-                .map(|id| (id, Some(init_position)))
-                .collect::<HashMap<_, _>>(),
-            replicated_positions: cluster
-                .member_ids()
-                .into_iter()
-                .map(|id| (id, None))
+                .map(|id| (id, (Some(init_position), None)))
                 .collect::<HashMap<_, _>>(),
             responders: HashMap::new(),
         }
@@ -262,19 +257,22 @@ impl Replicator {
     }
 
     fn on_failure(&mut self, member_id: &Id, missing_position: Position) {
-        // TODO:
-        *self.next_positions.get_mut(member_id).unwrap() = Some(missing_position);
+        let (next_position, _) = self.positions.get_mut(member_id).expect("Missing member entry");
+        next_position.replace(missing_position);
     }
 
     fn on_success(&mut self, member_id: &Id, replicated_position: Position, next_position: Option<Position>) {
-        *self.replicated_positions.get_mut(member_id).unwrap() = Some(replicated_position); // TODO:
-        *self.next_positions.get_mut(member_id).unwrap() = next_position; // TODO:
+        let (np, rp) = self.positions.get_mut(member_id).expect("Missing member entry");
+        next_position
+            .and_then(|next_position| np.replace(next_position))
+            .or_else(|| np.take());
+        rp.replace(replicated_position);
 
         // TODO:
         let replication_count = self
-            .replicated_positions
+            .positions
             .values()
-            .filter_map(|position| position.filter(|position| *position >= replicated_position))
+            .filter_map(|(_, rp)| rp.filter(|position| *position >= replicated_position))
             .count();
 
         if replication_count >= self.majority {
