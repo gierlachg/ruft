@@ -68,7 +68,10 @@ impl Cluster for PhysicalCluster {
         if *id == self.ingress.endpoint().id() {
             &self.ingress.endpoint()
         } else {
-            self.egresses.get(id).unwrap().endpoint()
+            self.egresses
+                .get(id)
+                .expect(&format!("Missing member for id: {:?}", id))
+                .endpoint()
         }
     }
 
@@ -79,7 +82,7 @@ impl Cluster for PhysicalCluster {
     async fn send(&self, member_id: &Id, message: Message) {
         match self.egresses.get(&member_id) {
             Some(egress) => egress.send(message.into()).await,
-            None => panic!("Missing member of id: {}", member_id.0),
+            None => panic!("Missing member of id: {:?}", member_id),
         }
     }
 

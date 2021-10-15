@@ -34,7 +34,7 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
             leader_id: None,
         }
     };
-    info!("Starting as: {}", state);
+    info!("Starting as: {:?}", state);
 
     loop {
         state = match state {
@@ -63,7 +63,7 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
             }
             TERMINATED => break,
         };
-        info!("Switching over to: {}", state);
+        info!("Switching over to: {:?}", state);
     }
 }
 

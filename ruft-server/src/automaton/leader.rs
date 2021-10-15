@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use futures::future::join_all;
 
 use crate::automaton::Responder;
 use crate::automaton::State::{self, TERMINATED};
@@ -77,14 +76,13 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     }
 
     async fn on_tick(&mut self) {
-        // TODO: sent recently...
-        let mut futures = self
+        let futures = self
             .replicator
             .next_positions
             .iter()
             .map(|(member_id, position)| self.replicate_or_heartbeat(member_id, position.as_ref()))
-            .collect::<FuturesUnordered<_>>();
-        while let Some(_) = futures.next().await {}
+            .collect::<Vec<_>>();
+        join_all(futures).await;
     }
 
     async fn replicate_or_heartbeat(&self, member_id: &Id, position: Option<&Position>) {
@@ -151,24 +149,34 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     ) -> Option<State> {
         if term > self.term {
             Some(State::follower(position.term(), None))
-        } else if success && position == *self.storage.head() {
-            self.replicator.on_success(&member_id, position, None);
-
-            None
-        } else {
-            let (preceding_position, position, entry) = if success {
-                self.storage
+        } else if success {
+            if position == *self.storage.head() {
+                self.replicator.on_success(&member_id, position, None);
+            } else {
+                let (preceding_position, position, entry) = self
+                    .storage
                     .next(&position)
                     .await
                     .map(|(p, e)| (position, p.clone(), e))
-                    .expect("Missing entry")
-            } else {
-                self.storage
-                    .at(&position)
-                    .await
-                    .map(|(p, e)| (p.clone(), position, e))
-                    .expect("Missing entry")
-            };
+                    .expect("Missing entry");
+                let message = Message::append_request(
+                    self.id,
+                    self.term,
+                    preceding_position,
+                    position.term(),
+                    vec![entry.clone()],
+                );
+                self.cluster.send(&member_id, message).await;
+                self.replicator.on_success(&member_id, preceding_position, None);
+            }
+            None
+        } else {
+            let (preceding_position, position, entry) = self
+                .storage
+                .at(&position)
+                .await
+                .map(|(p, e)| (p.clone(), position, e))
+                .expect("Missing entry");
             let message = Message::append_request(
                 self.id,
                 self.term,
@@ -177,14 +185,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 vec![entry.clone()],
             );
             self.cluster.send(&member_id, message).await;
-
-            if success {
-                self.replicator
-                    .on_success(&member_id, preceding_position, Some(position));
-            } else {
-                self.replicator.on_failure(&member_id, position);
-            }
-
+            self.replicator.on_failure(&member_id, position);
             None
         }
     }
