@@ -7,8 +7,7 @@ use crate::automaton::Responder;
 use crate::automaton::State::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Request;
-use crate::relay::protocol::Request::StoreRequest;
+use crate::relay::protocol::Request::{self, StoreRequest};
 use crate::relay::Relay;
 use crate::storage::{noop_message, Position, Storage};
 use crate::Id;
@@ -78,9 +77,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     async fn on_tick(&mut self) {
         let futures = self
             .replicator
-            .positions
-            .iter()
-            .map(|(member_id, (next_position, _))| self.replicate_or_heartbeat(member_id, next_position.as_ref()))
+            .next_positions()
+            .map(|(member_id, next_position)| self.replicate_or_heartbeat(member_id, next_position))
             .collect::<Vec<_>>();
         join_all(futures).await;
     }
@@ -151,7 +149,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             Some(State::follower(position.term(), None))
         } else if success {
             if position == *self.storage.head() {
-                self.replicator.on_success(&member_id, position, None);
+                self.replicator.on_success(&member_id, None, position);
             } else {
                 let (preceding_position, position, entry) = self
                     .storage
@@ -168,7 +166,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 );
                 self.cluster.send(&member_id, message).await;
                 self.replicator
-                    .on_success(&member_id, preceding_position, Some(position));
+                    .on_success(&member_id, Some(position), preceding_position);
             }
             None
         } else {
@@ -230,56 +228,91 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
 struct Replicator {
     // TODO: sent recently
-    majority: usize,
-    positions: HashMap<Id, (Option<Position>, Option<Position>)>,
+    views: HashMap<Id, LogView>,
     responders: HashMap<Position, Responder>,
 }
 
 impl Replicator {
     fn new(cluster: &dyn Cluster, init_position: Position) -> Self {
         Replicator {
-            majority: cluster.size() / 2, // TODO:
-            positions: cluster
+            views: cluster
                 .member_ids()
                 .into_iter()
-                .map(|id| (id, (Some(init_position), None)))
+                .map(|id| (id, LogView::new(init_position)))
                 .collect::<HashMap<_, _>>(),
             responders: HashMap::new(),
         }
     }
 
+    fn next_positions(&self) -> impl Iterator<Item = (&Id, Option<&Position>)> {
+        self.views.iter().map(|(id, view)| (id, view.next_position()))
+    }
+
     fn on_client_request(&mut self, position: Position, responder: Responder) {
-        if self.majority > 0 {
-            self.responders.insert(position, responder);
-        } else {
+        if self.views.len() == 0 {
             responder.respond_with_success()
+        } else {
+            self.responders.insert(position, responder);
         }
     }
 
     fn on_failure(&mut self, member_id: &Id, missing_position: Position) {
-        let (next_position, _) = self.positions.get_mut(member_id).expect("Missing member entry");
-        next_position.replace(missing_position);
+        self.views
+            .get_mut(member_id)
+            .expect("Missing member entry")
+            .on_failure(missing_position)
     }
 
-    fn on_success(&mut self, member_id: &Id, replicated_position: Position, next_position: Option<Position>) {
-        let (np, rp) = self.positions.get_mut(member_id).expect("Missing member entry");
-        next_position
-            .and_then(|next_position| np.replace(next_position))
-            .or_else(|| np.take());
-        rp.replace(replicated_position);
+    fn on_success(&mut self, member_id: &Id, next_position: Option<Position>, replicated_position: Position) {
+        self.views
+            .get_mut(member_id)
+            .expect("Missing member entry")
+            .on_success(next_position, replicated_position);
 
         // TODO:
         let replication_count = self
-            .positions
+            .views
             .values()
-            .filter_map(|(_, rp)| rp.filter(|position| *position >= replicated_position))
+            .filter(|view| view.already_replicated(&replicated_position))
             .count();
 
-        if replication_count >= self.majority {
+        if replication_count >= (self.views.len() + 1) / 2 {
             // TODO: response is always sent back ...
             if let Some(responder) = self.responders.remove(&replicated_position) {
                 responder.respond_with_success()
             }
         }
+    }
+}
+
+struct LogView {
+    next_position: Option<Position>,
+    replicated_position: Option<Position>,
+}
+
+impl LogView {
+    fn new(init_position: Position) -> Self {
+        LogView {
+            next_position: Some(init_position),
+            replicated_position: None,
+        }
+    }
+
+    fn next_position(&self) -> Option<&Position> {
+        self.next_position.as_ref()
+    }
+
+    fn on_failure(&mut self, missing_position: Position) {
+        self.next_position.replace(missing_position);
+    }
+
+    fn on_success(&mut self, next_position: Option<Position>, replicated_position: Position) {
+        self.next_position = next_position;
+        self.replicated_position.replace(replicated_position);
+    }
+
+    fn already_replicated(&self, position: &Position) -> bool {
+        self.replicated_position
+            .map_or(false, |replicated_position| replicated_position >= *position)
     }
 }
