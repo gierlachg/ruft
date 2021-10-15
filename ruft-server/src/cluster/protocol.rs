@@ -24,19 +24,21 @@ pub(crate) enum Message {
     )]
     AppendRequest {
         leader_id: Id,
-        preceding_position: Position,
         term: u64,
+        preceding_position: Position,
         entries: Vec<Payload>,
     } = APPEND_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
-        fmt = "AppendResponse {{ member_id: {}, success: {}, position: {:?} }}",
+        fmt = "AppendResponse {{ member_id: {}, term: {}, success: {},position: {:?} }}",
         member_id,
+        term,
         success,
         position
     )]
     AppendResponse {
         member_id: Id,
+        term: u64,
         success: bool,
         position: Position,
     } = APPEND_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
@@ -53,29 +55,39 @@ pub(crate) enum Message {
         position: Position,
     } = VOTE_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
-    #[display(fmt = "VoteResponse {{ term: {}, vote_granted: {} }}", vote_granted, term)]
-    VoteResponse { vote_granted: bool, term: u64 } = VOTE_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(
+        fmt = "VoteResponse {{ member_id: {}, term: {}, vote_granted: {} }}",
+        member_id,
+        term,
+        vote_granted
+    )]
+    VoteResponse {
+        member_id: Id,
+        term: u64,
+        vote_granted: bool,
+    } = VOTE_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Message {
     pub(crate) fn append_request(
         leader_id: Id,
-        preceding_position: Position,
         term: u64,
+        preceding_position: Position,
         entries: Vec<Payload>,
     ) -> Self {
-        // TODO committed
+        // TODO: committed
         AppendRequest {
             leader_id,
-            preceding_position,
             term,
+            preceding_position,
             entries,
         }
     }
 
-    pub(crate) fn append_response(member_id: Id, success: bool, position: Position) -> Self {
+    pub(crate) fn append_response(member_id: Id, term: u64, success: bool, position: Position) -> Self {
         AppendResponse {
             member_id,
+            term,
             success,
             position,
         }
@@ -89,8 +101,12 @@ impl Message {
         }
     }
 
-    pub(crate) fn vote_response(vote_granted: bool, term: u64) -> Self {
-        VoteResponse { vote_granted, term }
+    pub(crate) fn vote_response(member_id: Id, term: u64, vote_granted: bool) -> Self {
+        VoteResponse {
+            member_id,
+            term,
+            vote_granted,
+        }
     }
 }
 

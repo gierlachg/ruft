@@ -27,10 +27,9 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
     mut relay: R,
 ) {
     let mut state = if cluster.size() == 1 {
-        State::LEADER { id, term: 1 }
+        State::LEADER { term: 1 }
     } else {
         State::FOLLOWER {
-            id,
             term: 0,
             leader_id: None,
         }
@@ -39,7 +38,7 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
 
     loop {
         state = match state {
-            FOLLOWER { id, term, leader_id } => {
+            FOLLOWER { term, leader_id } => {
                 Follower::init(
                     id,
                     term,
@@ -52,12 +51,12 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
                 .run()
                 .await
             }
-            CANDIDATE { id, term } => {
+            CANDIDATE { term } => {
                 Candidate::init(id, term, &mut storage, &mut cluster, &mut relay, election_timeout)
                     .run()
                     .await
             }
-            LEADER { id, term } => {
+            LEADER { term } => {
                 Leader::init(id, term, &mut storage, &mut cluster, &mut relay, heartbeat_interval)
                     .run()
                     .await
@@ -70,23 +69,27 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
 
 #[derive(PartialEq, Eq, Display, Debug)]
 enum State {
-    #[display(fmt = "LEADER {{ id: {}, term: {} }}", id, term)]
-    LEADER { id: Id, term: u64 },
-    #[display(fmt = "CANDIDATE {{ id: {}, term: {} }}", id, term)]
-    CANDIDATE { id: Id, term: u64 },
-    #[display(fmt = "FOLLOWER {{ id: {}, term: {}, leader id: {:?} }}", id, term, leader_id)]
-    FOLLOWER { id: Id, term: u64, leader_id: Option<Id> },
+    #[display(fmt = "LEADER {{ term: {} }}", term)]
+    LEADER { term: u64 },
+    #[display(fmt = "CANDIDATE {{ term: {} }}", term)]
+    CANDIDATE { term: u64 },
+    #[display(fmt = "FOLLOWER {{ term: {}, leader id: {:?} }}", term, leader_id)]
+    FOLLOWER { term: u64, leader_id: Option<Id> },
     #[display(fmt = "TERMINATED")]
     TERMINATED,
 }
 
 impl State {
-    fn leader(id: Id, term: u64) -> Self {
-        LEADER { id, term }
+    fn leader(term: u64) -> Self {
+        LEADER { term }
     }
 
-    fn follower(id: Id, term: u64, leader_id: Option<Id>) -> Self {
-        FOLLOWER { id, term, leader_id }
+    fn candidate(term: u64) -> Self {
+        CANDIDATE { term }
+    }
+
+    fn follower(term: u64, leader_id: Option<Id>) -> Self {
+        FOLLOWER { term, leader_id }
     }
 }
 

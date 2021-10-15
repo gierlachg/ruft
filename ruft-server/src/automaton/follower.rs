@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use log::info;
 
-use crate::automaton::State::{CANDIDATE, TERMINATED};
+use crate::automaton::State::TERMINATED;
 use crate::automaton::{Responder, State};
-use crate::cluster::protocol::Message::{self, AppendRequest, VoteRequest};
+use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
 use crate::relay::Relay;
@@ -18,6 +18,7 @@ pub(super) struct Follower<'a, S: Storage, C: Cluster, R: Relay> {
     cluster: &'a mut C,
     relay: &'a mut R,
 
+    votee: Option<Id>,
     leader_id: Option<Id>,
 
     election_timeout: Duration,
@@ -39,6 +40,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
             storage,
             cluster,
             relay,
+            votee: None,
             leader_id,
             election_timeout,
         }
@@ -48,7 +50,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(self.election_timeout) => {
-                    break CANDIDATE { id: self.id, term: self.term }
+                    break State::candidate(self.term)
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => self.on_message(message).await,
@@ -65,13 +67,18 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
     async fn on_message(&mut self, message: Message) {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, preceding_position, term, entries } => {
+            AppendRequest { leader_id, term, preceding_position, entries } => {
                 self.on_append_request(leader_id, preceding_position, term, entries).await
+            },
+            AppendResponse {member_id: _, term, success: _, position: _} => {
+                self.on_append_response(term)
             },
             VoteRequest { candidate_id, term, position } => {
                 self.on_vote_request(candidate_id, term, position).await
             },
-            _ => {}
+            VoteResponse {member_id: _, term, vote_granted: _} => {
+                self.on_vote_response(term)
+            },
         }
     }
 
@@ -82,43 +89,76 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         term: u64,
         entries: Vec<Payload>,
     ) {
-        if term > self.term {
-            // TODO: possible double vote (in conjunction with VoteRequest actions) ?
-            self.term = term;
-        }
-        if term >= self.term {
-            self.leader_id = Some(leader_id);
+        if self.term > term {
+            return self
+                .cluster
+                .send(
+                    &leader_id,
+                    Message::append_response(self.id, self.term, false, *self.storage.head()),
+                )
+                .await;
         }
 
+        self.term = term;
+        self.leader_id.replace(leader_id);
         match self.storage.insert(&preceding_position, term, entries).await {
             Ok(position) => {
                 info!("Accepted: {:?}", position);
                 self.cluster
-                    .send(&leader_id, Message::append_response(self.id, true, position))
+                    .send(&leader_id, Message::append_response(self.id, self.term, true, position))
                     .await
             }
             Err(position) => {
                 info!("Missing: {:?}", position);
                 self.cluster
-                    .send(&leader_id, Message::append_response(self.id, false, position))
+                    .send(
+                        &leader_id,
+                        Message::append_response(self.id, self.term, false, position),
+                    )
                     .await
             }
         }
     }
 
-    async fn on_vote_request(&mut self, candidate_id: Id, term: u64, position: Position) {
-        if term > self.term && position >= *self.storage.head() {
-            // TODO: should it be actually updated ?
+    fn on_append_response(&mut self, term: u64) {
+        if term > self.term {
             self.term = term;
+            self.votee = None;
             self.leader_id = None;
+        }
+    }
 
-            self.cluster
-                .send(&candidate_id, Message::vote_response(true, self.term))
+    async fn on_vote_request(&mut self, candidate_id: Id, term: u64, position: Position) {
+        if self.term > term {
+            return self
+                .cluster
+                .send(&candidate_id, Message::vote_response(self.id, self.term, false))
                 .await;
-        } else if term < self.term {
+        }
+
+        if term > self.term {
+            if position >= *self.storage.head() {
+                self.term = term;
+                self.votee.replace(candidate_id);
+                self.leader_id = None;
+
+                self.cluster
+                    .send(&candidate_id, Message::vote_response(self.id, self.term, true))
+                    .await
+            }
+        } else if self.votee.is_none() {
+            self.votee.replace(candidate_id);
             self.cluster
-                .send(&candidate_id, Message::vote_response(false, self.term))
-                .await;
+                .send(&candidate_id, Message::vote_response(self.id, self.term, true))
+                .await
+        }
+    }
+
+    fn on_vote_response(&mut self, term: u64) {
+        if term > self.term {
+            self.term = term;
+            self.votee = None;
+            self.leader_id = None;
         }
     }
 
@@ -127,204 +167,5 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
             .leader_id
             .map(|ref leader_id| *self.cluster.endpoint(leader_id).client_address());
         responder.respond_with_redirect(leader_address);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use async_trait::async_trait;
-    use mockall::{mock, predicate};
-    use predicate::eq;
-    use tokio::sync::mpsc;
-
-    use crate::cluster::protocol::Message;
-    use crate::relay::protocol::{Request, Response};
-    use crate::storage::Position;
-    use crate::{Endpoint, Id, Payload};
-
-    use super::*;
-
-    const ID: Id = Id(1);
-    const PEER_ID: Id = Id(2);
-
-    const TERM: u64 = 10;
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn when_append_request_successful_insert_then_update_and_respond() {
-        // given
-        let position = Position::of(0, 0);
-        let entries = vec![Payload::from_static(&[1])];
-
-        let (mut storage, mut cluster, mut relay) = infrastructure();
-
-        storage
-            .expect_insert()
-            .with(eq(position), eq(TERM + 1), eq(entries.clone()))
-            .returning(|position, _, _| Ok(position.clone()));
-
-        // TODO:
-        cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
-            PEER_ID,
-            "127.0.0.1:8080".parse().unwrap(),
-            "127.0.0.1:8081".parse().unwrap(),
-        ));
-        cluster
-            .expect_send()
-            .with(eq(PEER_ID), eq(Message::append_response(ID, true, position)))
-            .return_const(());
-
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
-
-        // when
-        follower.on_append_request(PEER_ID, position, TERM + 1, entries).await;
-
-        // then
-        assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower.leader_id, Some(PEER_ID));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn when_append_request_erroneous_insert_then_update_and_respond() {
-        // given
-        let position = Position::of(1, 0);
-        let entries = vec![Payload::from_static(&[1])];
-
-        let (mut storage, mut cluster, mut relay) = infrastructure();
-
-        storage
-            .expect_insert()
-            .with(eq(position), eq(TERM + 1), eq(entries.clone()))
-            .returning(|position, _, _| Err(position.clone()));
-
-        // TODO:
-        cluster.expect_endpoint().with(eq(PEER_ID)).return_const(Endpoint::new(
-            PEER_ID,
-            "127.0.0.1:8080".parse().unwrap(),
-            "127.0.0.1:8081".parse().unwrap(),
-        ));
-        cluster
-            .expect_send()
-            .with(eq(PEER_ID), eq(Message::append_response(ID, false, position)))
-            .return_const(());
-
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
-
-        // when
-        follower.on_append_request(PEER_ID, position, TERM + 1, entries).await;
-
-        // then
-        assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower.leader_id, Some(PEER_ID));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn when_vote_request_term_greater_and_log_is_up_to_date_then_update_and_respond() {
-        // given
-        let position = Position::of(1, 1);
-
-        let (mut storage, mut cluster, mut relay) = infrastructure();
-
-        storage.expect_head().return_const(position);
-
-        cluster
-            .expect_send()
-            .with(eq(PEER_ID), eq(Message::vote_response(true, TERM + 1)))
-            .return_const(());
-
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
-
-        // when
-        follower.on_vote_request(PEER_ID, TERM + 1, position).await;
-
-        // then
-        assert_eq!(follower.term, TERM + 1);
-        assert_eq!(follower.leader_id, None);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn when_vote_request_term_greater_but_log_is_not_up_to_date_then_ignore() {
-        // given
-        let (mut storage, mut cluster, mut relay) = infrastructure();
-
-        storage.expect_head().return_const(Position::of(1, 1));
-
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
-
-        // when
-        follower.on_vote_request(PEER_ID, TERM + 1, Position::of(1, 0)).await;
-
-        // then
-        assert_eq!(follower.term, TERM);
-        assert_eq!(follower.leader_id, None);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn when_vote_request_term_less_then_respond() {
-        // given
-        let position = Position::of(1, 1);
-
-        let (mut storage, mut cluster, mut relay) = infrastructure();
-
-        storage.expect_head().return_const(position);
-
-        cluster
-            .expect_send()
-            .with(eq(PEER_ID), eq(Message::vote_response(false, TERM)))
-            .return_const(());
-
-        let mut follower = follower(&mut storage, &mut cluster, &mut relay, None);
-
-        // when
-        follower.on_vote_request(PEER_ID, TERM - 1, position).await;
-
-        // then
-        assert_eq!(follower.term, TERM);
-        assert_eq!(follower.leader_id, None);
-    }
-
-    fn infrastructure() -> (MockStorage, MockCluster, MockRelay) {
-        (MockStorage::new(), MockCluster::new(), MockRelay::new())
-    }
-
-    fn follower<'a>(
-        storage: &'a mut MockStorage,
-        cluster: &'a mut MockCluster,
-        relay: &'a mut MockRelay,
-        leader_id: Option<Id>,
-    ) -> Follower<'a, MockStorage, MockCluster, MockRelay> {
-        Follower::init(ID, TERM, storage, cluster, relay, leader_id, Duration::from_secs(1))
-    }
-
-    mock! {
-        Storage {}
-        #[async_trait]
-        trait Storage {
-            fn head(&self) -> &Position;
-            async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position;
-            async fn insert(&mut self, preceding_position: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position>;
-            async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
-            async fn next<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)>;
-        }
-    }
-
-    mock! {
-        Cluster {}
-        #[async_trait]
-        trait Cluster {
-            fn member_ids(&self) ->  Vec<Id>;
-            fn endpoint(&self, id: &Id) -> &Endpoint;
-            fn size(&self) -> usize;
-            async fn send(&self, member_id: &Id, message: Message);
-            async fn broadcast(&self, message: Message);
-            async fn messages(&mut self) -> Option<Message>;
-        }
-    }
-
-    mock! {
-        Relay {}
-        #[async_trait]
-        trait Relay {
-            async fn requests(&mut self) -> Option<(Request, mpsc::UnboundedSender<Response>)>;
-        }
     }
 }
