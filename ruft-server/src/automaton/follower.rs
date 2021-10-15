@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use log::info;
 
-use crate::automaton::State::TERMINATED;
-use crate::automaton::{Responder, State};
+use crate::automaton::Responder;
+use crate::automaton::State::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
@@ -47,13 +47,18 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
     }
 
     pub(super) async fn run(&mut self) -> State {
+        tokio::pin! {
+           let sleep = tokio::time::sleep(self.election_timeout);
+        }
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(self.election_timeout) => {
+                _ = &mut sleep => {
                     break State::candidate(self.term)
                 },
                 message = self.cluster.messages() => match message {
-                    Some(message) => self.on_message(message).await,
+                    Some(message) => if self.on_message(message).await {
+                        sleep.as_mut().reset(tokio::time::Instant::now() + self.election_timeout);
+                    },
                     None => break TERMINATED
                 },
                 request = self.relay.requests() => match request {
@@ -64,20 +69,24 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         }
     }
 
-    async fn on_message(&mut self, message: Message) {
+    async fn on_message(&mut self, message: Message) -> bool {
         #[rustfmt::skip]
         match message {
             AppendRequest { leader_id, term, preceding_position, entries } => {
-                self.on_append_request(leader_id, preceding_position, term, entries).await
+                self.on_append_request(leader_id, preceding_position, term, entries).await;
+                true
             },
             AppendResponse {member_id: _, term, success: _, position: _} => {
-                self.on_append_response(term)
+                self.on_append_response(term);
+                false
             },
             VoteRequest { candidate_id, term, position } => {
-                self.on_vote_request(candidate_id, term, position).await
+                self.on_vote_request(candidate_id, term, position).await;
+                false
             },
             VoteResponse {member_id: _, term, vote_granted: _} => {
-                self.on_vote_response(term)
+                self.on_vote_response(term);
+                false
             },
         }
     }
