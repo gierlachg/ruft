@@ -17,15 +17,17 @@ const VOTE_RESPONSE_MESSAGE_ID: u16 = 4;
 #[repr(u16)]
 pub(crate) enum Message {
     #[display(
-        fmt = "AppendRequest {{ leader_id: {}, preceding position: {:?}, term: {} }}",
+        fmt = "AppendRequest {{ leader_id: {}, preceding position: {:?}, term: {}, entries_term: {} }}",
         leader_id,
         preceding_position,
-        term
+        term,
+        entries_term
     )]
     AppendRequest {
         leader_id: Id,
         term: u64,
         preceding_position: Position,
+        entries_term: u64,
         entries: Vec<Payload>,
     } = APPEND_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
@@ -73,6 +75,7 @@ impl Message {
         leader_id: Id,
         term: u64,
         preceding_position: Position,
+        entries_term: u64,
         entries: Vec<Payload>,
     ) -> Self {
         // TODO: committed
@@ -80,6 +83,7 @@ impl Message {
             leader_id,
             term,
             preceding_position,
+            entries_term,
             entries,
         }
     }

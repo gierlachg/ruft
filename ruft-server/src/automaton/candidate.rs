@@ -78,7 +78,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     async fn on_message(&mut self, message: Message) -> Option<State> {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, preceding_position: _, term, entries: _ } => {
+            AppendRequest { leader_id, term, preceding_position: _, entries_term: _, entries: _ } => {
                 self.on_append_request(leader_id, term).await
             },
             AppendResponse {member_id: _, term, success: _, position: _} => {

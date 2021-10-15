@@ -90,12 +90,16 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     async fn replicate_or_heartbeat(&self, member_id: &Id, position: Option<&Position>) {
         let message = match position {
             Some(position) => match self.storage.at(&position).await {
-                Some((preceding_position, entry)) => {
-                    Message::append_request(self.id, self.term, *preceding_position, vec![entry.clone()])
-                }
+                Some((preceding_position, entry)) => Message::append_request(
+                    self.id,
+                    self.term,
+                    *preceding_position,
+                    position.term(),
+                    vec![entry.clone()],
+                ),
                 None => panic!("Missing entry at {:?}", &position),
             },
-            None => Message::append_request(self.id, self.term, *self.storage.head(), vec![]),
+            None => Message::append_request(self.id, self.term, *self.storage.head(), self.term, vec![]),
         };
         self.cluster.send(&member_id, message).await;
     }
@@ -103,7 +107,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     async fn on_message(&mut self, message: Message) -> Option<State> {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, term, preceding_position: _, entries: _ } => {
+            AppendRequest { leader_id, term, preceding_position: _, entries_term: _, entries: _ } => {
                 self.on_append_request(leader_id, term).await
             },
             AppendResponse { member_id, term, success, position } => {
@@ -159,14 +163,19 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                     .map(|(p, e)| (position, p.clone(), e))
                     .expect("Missing entry")
             } else {
-                println!("{} {} {:?}", term, success, position);
                 self.storage
                     .at(&position)
                     .await
                     .map(|(p, e)| (p.clone(), position, e))
                     .expect("Missing entry")
             };
-            let message = Message::append_request(self.id, self.term, preceding_position, vec![entry.clone()]);
+            let message = Message::append_request(
+                self.id,
+                self.term,
+                preceding_position,
+                position.term(),
+                vec![entry.clone()],
+            );
             self.cluster.send(&member_id, message).await;
 
             if success {
