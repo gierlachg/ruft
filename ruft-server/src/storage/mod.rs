@@ -26,7 +26,7 @@ pub(crate) trait Storage {
 
     async fn at(&self, position: &Position) -> Option<(&Position, &Payload)>;
 
-    async fn next(&self, preceding_position: &Position) -> Option<(&Position, &Payload)>;
+    async fn next(&self, position: &Position) -> Option<(&Position, &Payload)>;
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
@@ -45,6 +45,10 @@ impl Position {
         self.1
     }
 
+    pub(crate) fn next(&self) -> Self {
+        Position::of(self.0, self.index() + 1)
+    }
+
     fn next_in(&self, term: u64) -> Self {
         if self.term() == term {
             Position::of(term, self.index() + 1)
@@ -60,14 +64,14 @@ impl<'a> PartialEq<Position> for &'a Position {
     }
 }
 
-impl Ord for Position {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.term().cmp(&other.term()).then(self.index().cmp(&other.index()))
-    }
-}
-
 impl PartialOrd for Position {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl Ord for Position {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.term().cmp(&other.term()).then(self.index().cmp(&other.index()))
     }
 }

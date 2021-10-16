@@ -31,19 +31,14 @@ impl Storage for VolatileStorage {
     async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position {
         assert!(term > 0);
 
-        match self.entries.iter().next_back() {
-            Some((position, _)) => {
-                let mut head = *position;
-                let mut next;
-                for entry in entries {
-                    next = head.next_in(term);
-                    self.entries.insert(next, entry);
-                    head = next;
-                }
-                head
-            }
-            None => unreachable!("{:?}", self.entries),
+        let mut head = *self.head();
+        let mut next;
+        for entry in entries {
+            next = head.next_in(term);
+            self.entries.insert(next, entry);
+            head = next;
         }
+        head
     }
 
     async fn insert(
@@ -65,22 +60,17 @@ impl Storage for VolatileStorage {
             self.entries.split_off(&position);
         }
 
-        match self.entries.iter().next_back() {
-            Some((head, _)) => {
-                if head == preceding_position {
-                    Ok(self.extend(term, entries).await)
-                } else if head.term() == preceding_position.term() {
-                    Err(head.next_in(preceding_position.term()))
-                } else {
-                    Err(*preceding_position)
-                }
-            }
-            None => unreachable!("{:?}", self.entries),
+        let head = self.head();
+        if head == preceding_position {
+            Ok(self.extend(term, entries).await)
+        } else if head.term() == preceding_position.term() {
+            Err(head.next())
+        } else {
+            Err(*preceding_position)
         }
     }
 
-    #[allow(clippy::needless_lifetimes)]
-    async fn at<'a>(&'a self, position: &Position) -> Option<(&'a Position, &'a Payload)> {
+    async fn at(&self, position: &Position) -> Option<(&Position, &Payload)> {
         self.entries
             .range(..position)
             .next_back()
@@ -88,12 +78,11 @@ impl Storage for VolatileStorage {
             .zip(self.entries.get(position))
     }
 
-    #[allow(clippy::needless_lifetimes)]
-    async fn next<'a>(&'a self, preceding_position: &Position) -> Option<(&'a Position, &'a Payload)> {
+    async fn next(&self, position: &Position) -> Option<(&Position, &Payload)> {
         self.entries
-            .range(preceding_position..)
+            .range(position..)
             .into_iter()
-            .skip_while(|(position, _)| position == preceding_position)
+            .skip_while(|(p, _)| p == position)
             .next()
     }
 }

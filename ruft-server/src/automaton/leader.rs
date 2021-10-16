@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
 use futures::future::join_all;
@@ -21,7 +21,7 @@ pub(super) struct Leader<'a, S: Storage, C: Cluster, R: Relay> {
     cluster: &'a mut C,
     relay: &'a mut R,
 
-    replicator: Replicator,
+    registry: Registry,
 
     heartbeat_interval: Duration,
 }
@@ -35,26 +35,28 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         relay: &'a mut R,
         heartbeat_interval: Duration,
     ) -> Self {
-        let replicator = Replicator::new(cluster, Position::of(term, 0));
-
         Leader {
             id,
             term,
             storage,
             cluster,
             relay,
-            replicator,
+            registry: Registry::new(),
             heartbeat_interval,
         }
     }
 
     pub(super) async fn run(&mut self) -> State {
-        assert_eq!(
+        self.registry.init(
+            self.cluster.member_ids(),
             self.storage.extend(self.term, vec![noop_message()]).await,
-            Position::of(self.term, 0)
         );
+        self.on_tick().await;
 
-        let mut ticker = tokio::time::interval(self.heartbeat_interval);
+        let mut ticker = tokio::time::interval_at(
+            tokio::time::Instant::now() + self.heartbeat_interval,
+            self.heartbeat_interval,
+        );
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
@@ -76,25 +78,22 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
     async fn on_tick(&mut self) {
         let futures = self
-            .replicator
-            .next_positions()
-            .map(|(member_id, next_position)| self.replicate_or_heartbeat(member_id, next_position))
+            .registry
+            .nexts()
+            .map(|(member_id, next)| self.replicate(member_id, next))
             .collect::<Vec<_>>();
         join_all(futures).await;
     }
 
-    async fn replicate_or_heartbeat(&self, member_id: &Id, position: Option<&Position>) {
-        let message = match position {
-            Some(position) => match self.storage.at(&position).await {
-                Some((preceding_position, entry)) => Message::append_request(
-                    self.id,
-                    self.term,
-                    *preceding_position,
-                    position.term(),
-                    vec![entry.clone()],
-                ),
-                None => panic!("Missing entry at {:?}", &position),
-            },
+    async fn replicate(&self, member_id: &Id, position: &Position) {
+        let message = match self.storage.at(&position).await {
+            Some((preceding_position, entry)) => Message::append_request(
+                self.id,
+                self.term,
+                *preceding_position,
+                position.term(),
+                vec![entry.clone()],
+            ),
             None => Message::append_request(self.id, self.term, *self.storage.head(), self.term, vec![]),
         };
         self.cluster.send(&member_id, message).await;
@@ -148,25 +147,24 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         if term > self.term {
             Some(State::follower(position.term(), None))
         } else if success {
-            if position == *self.storage.head() {
-                self.replicator.on_success(&member_id, None, position);
-            } else {
-                let (preceding_position, position, entry) = self
-                    .storage
-                    .next(&position)
-                    .await
-                    .map(|(p, e)| (position, p.clone(), e))
-                    .expect("Missing entry");
-                let message = Message::append_request(
-                    self.id,
-                    self.term,
-                    preceding_position,
-                    position.term(),
-                    vec![entry.clone()],
-                );
-                self.cluster.send(&member_id, message).await;
-                self.replicator
-                    .on_success(&member_id, Some(position), preceding_position);
+            match self
+                .storage
+                .next(&position)
+                .await
+                .map(|(p, e)| (position, p.clone(), e))
+            {
+                Some((preceding_position, position, entry)) => {
+                    let message = Message::append_request(
+                        self.id,
+                        self.term,
+                        preceding_position,
+                        position.term(),
+                        vec![entry.clone()],
+                    );
+                    self.cluster.send(&member_id, message).await;
+                    self.registry.on_success(&member_id, position, preceding_position);
+                }
+                None => self.registry.on_success(&member_id, position.next(), position),
             }
             None
         } else {
@@ -184,7 +182,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 vec![entry.clone()],
             );
             self.cluster.send(&member_id, message).await;
-            self.replicator.on_failure(&member_id, position);
+            self.registry.on_failure(&member_id, position);
             None
         }
     }
@@ -216,103 +214,109 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     }
 
     async fn on_client_request(&mut self, request: Request, responder: Responder) {
-        // TODO: store in exchanges ? leadership lost...
         match request {
             StoreRequest { payload } => {
-                let position = self.storage.extend(self.term, vec![payload]).await; // TODO: replicate, get rid of vec!
-                self.replicator.on_client_request(position, responder);
+                let position = self.storage.extend(self.term, vec![payload]).await;
+                self.registry.on_client_request(position, responder);
             }
         }
     }
 }
 
-struct Replicator {
-    // TODO: sent recently
-    views: HashMap<Id, LogView>,
-    responders: HashMap<Position, Responder>,
+struct Registry {
+    records: HashMap<Id, Record>,
+    responders: VecDeque<(Position, Responder)>,
 }
 
-impl Replicator {
-    fn new(cluster: &dyn Cluster, init_position: Position) -> Self {
-        Replicator {
-            views: cluster
-                .member_ids()
-                .into_iter()
-                .map(|id| (id, LogView::new(init_position)))
-                .collect::<HashMap<_, _>>(),
-            responders: HashMap::new(),
+impl Registry {
+    fn new() -> Self {
+        Registry {
+            records: HashMap::new(),
+            responders: VecDeque::new(),
         }
     }
 
-    fn next_positions(&self) -> impl Iterator<Item = (&Id, Option<&Position>)> {
-        self.views.iter().map(|(id, view)| (id, view.next_position()))
+    fn init(&mut self, member_ids: Vec<Id>, position: Position) {
+        member_ids.into_iter().for_each(|id| {
+            self.records.insert(id, Record::new(position));
+        });
     }
 
     fn on_client_request(&mut self, position: Position, responder: Responder) {
-        if self.views.len() == 0 {
+        if self.records.len() == 0 {
             responder.respond_with_success()
         } else {
-            self.responders.insert(position, responder);
+            self.responders.push_front((position, responder));
         }
     }
 
-    fn on_failure(&mut self, member_id: &Id, missing_position: Position) {
-        self.views
+    fn on_failure(&mut self, member_id: &Id, missing: Position) {
+        self.records
             .get_mut(member_id)
             .expect("Missing member entry")
-            .on_failure(missing_position)
+            .on_failure(missing)
     }
 
-    fn on_success(&mut self, member_id: &Id, next_position: Option<Position>, replicated_position: Position) {
-        self.views
+    fn on_success(&mut self, member_id: &Id, next: Position, replicated: Position) {
+        self.records
             .get_mut(member_id)
             .expect("Missing member entry")
-            .on_success(next_position, replicated_position);
+            .on_success(next, replicated);
 
-        // TODO:
-        let replication_count = self
-            .views
-            .values()
-            .filter(|view| view.already_replicated(&replicated_position))
-            .count();
-
-        if replication_count >= (self.views.len() + 1) / 2 {
-            // TODO: response is always sent back ...
-            if let Some(responder) = self.responders.remove(&replicated_position) {
-                responder.respond_with_success()
+        loop {
+            match self.responders.back() {
+                None => break,
+                Some((position, _)) if *position > replicated => break,
+                Some((position, _)) => {
+                    let replications = self
+                        .records
+                        .values()
+                        .filter(|record| record.already_replicated(&position))
+                        .count();
+                    if replications >= (self.records.len() + 1) / 2 {
+                        // safety: self.responders.back() above guarantees an item exists
+                        self.responders.pop_back().unwrap().1.respond_with_success()
+                    } else {
+                        break;
+                    }
+                }
             }
         }
     }
+
+    fn nexts(&self) -> impl Iterator<Item = (&Id, &Position)> {
+        self.records.iter().map(|(id, record)| (id, record.next()))
+    }
 }
 
-struct LogView {
-    next_position: Option<Position>,
-    replicated_position: Option<Position>,
+// TODO: sent recently
+struct Record {
+    next: Position,
+    replicated: Option<Position>,
 }
 
-impl LogView {
-    fn new(init_position: Position) -> Self {
-        LogView {
-            next_position: Some(init_position),
-            replicated_position: None,
+impl Record {
+    fn new(position: Position) -> Self {
+        Record {
+            next: position,
+            replicated: None,
         }
     }
 
-    fn next_position(&self) -> Option<&Position> {
-        self.next_position.as_ref()
+    fn next(&self) -> &Position {
+        &self.next
     }
 
-    fn on_failure(&mut self, missing_position: Position) {
-        self.next_position.replace(missing_position);
+    fn on_failure(&mut self, missing: Position) {
+        self.next = missing
     }
 
-    fn on_success(&mut self, next_position: Option<Position>, replicated_position: Position) {
-        self.next_position = next_position;
-        self.replicated_position.replace(replicated_position);
+    fn on_success(&mut self, next: Position, replicated: Position) {
+        self.next = next;
+        self.replicated.replace(replicated);
     }
 
     fn already_replicated(&self, position: &Position) -> bool {
-        self.replicated_position
-            .map_or(false, |replicated_position| replicated_position >= *position)
+        self.replicated.map_or(false, |replicated| replicated >= *position)
     }
 }
