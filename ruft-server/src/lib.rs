@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 #![feature(stmt_expr_attributes)]
+#![feature(arbitrary_enum_discriminant)]
 
 use std::convert::TryFrom;
 use std::error::Error;

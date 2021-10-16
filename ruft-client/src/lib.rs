@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![feature(arbitrary_enum_discriminant)]
 
 use std::net::SocketAddr;
 
