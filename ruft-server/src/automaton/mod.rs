@@ -97,10 +97,12 @@ struct Responder(tokio::sync::mpsc::UnboundedSender<Response>);
 
 impl Responder {
     fn respond_with_success(self) {
+        // safety: client already disconnected
         self.0.send(Response::store_success_response()).unwrap_or(())
     }
 
     fn respond_with_redirect(&self, address: Option<SocketAddr>) {
+        // safety: client already disconnected
         self.0.send(Response::store_redirect_response(address)).unwrap_or(())
     }
 }

@@ -116,7 +116,7 @@ impl Message {
 
 impl Into<Bytes> for Message {
     fn into(self) -> Bytes {
-        Bytes::from(bincode::serialize(&self).unwrap()) // TODO: try_into ?
+        Bytes::from(bincode::serialize(&self).expect("Unable to serialize"))
     }
 }
 

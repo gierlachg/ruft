@@ -27,7 +27,7 @@ impl Request {
 
 impl Into<Bytes> for &Request {
     fn into(self) -> Bytes {
-        Bytes::from(bincode::serialize(self).unwrap()) // TODO: try_into ?
+        Bytes::from(bincode::serialize(self).expect("Unable to serialize"))
     }
 }
 

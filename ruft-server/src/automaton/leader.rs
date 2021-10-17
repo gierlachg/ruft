@@ -77,26 +77,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     }
 
     async fn on_tick(&mut self) {
-        let futures = self
-            .registry
-            .nexts()
-            .map(|(member_id, next)| self.replicate(member_id, next))
-            .collect::<Vec<_>>();
-        join_all(futures).await;
-    }
-
-    async fn replicate(&self, member_id: &Id, position: &Position) {
-        let message = match self.storage.at(&position).await {
-            Some((preceding_position, entry)) => Message::append_request(
-                self.id,
-                self.term,
-                *preceding_position,
-                position.term(),
-                vec![entry.clone()],
-            ),
-            None => Message::append_request(self.id, self.term, *self.storage.head(), self.term, vec![]),
-        };
-        self.cluster.send(&member_id, message).await;
+        self.replicate(self.registry.nexts()).await;
     }
 
     async fn on_message(&mut self, message: Message) -> Option<State> {
@@ -134,6 +115,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             term,
             leader_id
         );
+        // TODO: redirect all pending requests
         Some(State::follower(term, Some(leader_id)))
     }
 
@@ -145,6 +127,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         position: Position,
     ) -> Option<State> {
         if term > self.term {
+            // TODO: redirect all pending requests
             Some(State::follower(position.term(), None))
         } else if success {
             match self
@@ -199,6 +182,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
 
         if term > self.term {
+            // TODO: redirect all pending requests
             Some(State::follower(term, None))
         } else {
             None
@@ -207,6 +191,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
     fn on_vote_response(&mut self, term: u64) -> Option<State> {
         if term > self.term {
+            // TODO: redirect all pending requests
             Some(State::follower(term, None))
         } else {
             None
@@ -218,8 +203,30 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             StoreRequest { payload } => {
                 let position = self.storage.extend(self.term, vec![payload]).await;
                 self.registry.on_client_request(position, responder);
+                self.replicate(self.registry.nexts_replicated(position)).await;
             }
         }
+    }
+
+    async fn replicate(&self, items: impl Iterator<Item = (&Id, &Position)>) {
+        let futures = items
+            .map(|(member_id, position)| self.replicate_single(member_id, &position))
+            .collect::<Vec<_>>();
+        join_all(futures).await;
+    }
+
+    async fn replicate_single(&self, member_id: &Id, position: &Position) {
+        let message = match self.storage.at(&position).await {
+            Some((preceding_position, entry)) => Message::append_request(
+                self.id,
+                self.term,
+                *preceding_position,
+                position.term(),
+                vec![entry.clone()],
+            ),
+            None => Message::append_request(self.id, self.term, *self.storage.head(), self.term, vec![]),
+        };
+        self.cluster.send(&member_id, message).await;
     }
 }
 
@@ -286,6 +293,13 @@ impl Registry {
 
     fn nexts(&self) -> impl Iterator<Item = (&Id, &Position)> {
         self.records.iter().map(|(id, record)| (id, record.next()))
+    }
+
+    fn nexts_replicated(&self, position: Position) -> impl Iterator<Item = (&Id, &Position)> {
+        self.records
+            .iter()
+            .filter(move |(_, record)| record.next() == position)
+            .map(|(id, record)| (id, record.next()))
     }
 }
 
