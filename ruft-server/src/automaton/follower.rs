@@ -8,8 +8,8 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
 use crate::relay::Relay;
-use crate::storage::{Position, Storage};
-use crate::{Id, Payload};
+use crate::storage::Storage;
+use crate::{Id, Payload, Position};
 
 pub(super) struct Follower<'a, S: Storage, C: Cluster, R: Relay> {
     id: Id,

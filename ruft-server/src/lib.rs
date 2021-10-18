@@ -2,6 +2,7 @@
 #![feature(stmt_expr_attributes)]
 #![feature(arbitrary_enum_discriminant)]
 
+use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::hash::Hash;
@@ -124,6 +125,53 @@ fn to_endpoints(local: (SocketAddr, SocketAddr), remotes: Vec<(SocketAddr, Socke
     let local_endpoint = remote_endpoints.remove(local_endpoint_position);
 
     (local_endpoint, remote_endpoints)
+}
+
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
+struct Position(u64, u64);
+
+impl Position {
+    fn of(term: u64, index: u64) -> Self {
+        Position(term, index)
+    }
+
+    fn term(&self) -> u64 {
+        self.0
+    }
+
+    fn index(&self) -> u64 {
+        self.1
+    }
+
+    fn next(&self) -> Self {
+        Position::of(self.0, self.index() + 1)
+    }
+
+    fn next_in(&self, term: u64) -> Self {
+        if self.term() == term {
+            Position::of(term, self.index() + 1)
+        } else {
+            Position::of(term, 0)
+        }
+    }
+}
+
+impl<'a> PartialEq<Position> for &'a Position {
+    fn eq(&self, other: &Position) -> bool {
+        *self == other
+    }
+}
+
+impl PartialOrd for Position {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Position {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.term().cmp(&other.term()).then(self.index().cmp(&other.index()))
+    }
 }
 
 #[derive(PartialEq, Clone, Debug)]

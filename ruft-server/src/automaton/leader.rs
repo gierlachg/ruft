@@ -9,8 +9,8 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::{self, StoreRequest};
 use crate::relay::Relay;
-use crate::storage::{noop_message, Position, Storage};
-use crate::Id;
+use crate::storage::{noop_message, Storage};
+use crate::{Id, Position};
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 

@@ -5,8 +5,7 @@ use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::cluster::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
-use crate::storage::Position;
-use crate::{Id, Payload};
+use crate::{Id, Payload, Position};
 
 const APPEND_REQUEST_MESSAGE_ID: u16 = 1;
 const APPEND_RESPONSE_MESSAGE_ID: u16 = 2;

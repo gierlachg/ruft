@@ -6,8 +6,8 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
 use crate::relay::Relay;
-use crate::storage::{Position, Storage};
-use crate::Id;
+use crate::storage::Storage;
+use crate::{Id, Position};
 
 pub(super) struct Candidate<'a, S: Storage, C: Cluster, R: Relay> {
     id: Id,

@@ -3,8 +3,8 @@ use std::fmt::{self, Display, Formatter};
 
 use async_trait::async_trait;
 
-use crate::storage::{noop_message, Position, Storage};
-use crate::Payload;
+use crate::storage::{noop_message, Storage};
+use crate::{Payload, Position};
 
 pub(crate) struct VolatileStorage {
     entries: BTreeMap<Position, Payload>,
