@@ -104,7 +104,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
                 .cluster
                 .send(
                     &leader_id,
-                    Message::append_response(self.id, self.term, false, *self.storage.head()),
+                    Message::append_response(self.id, self.term, false, preceding_position),
                 )
                 .await;
         }

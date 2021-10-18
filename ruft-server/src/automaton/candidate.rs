@@ -6,7 +6,7 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
 use crate::relay::Relay;
-use crate::storage::Storage;
+use crate::storage::{Position, Storage};
 use crate::Id;
 
 pub(super) struct Candidate<'a, S: Storage, C: Cluster, R: Relay> {
@@ -78,8 +78,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     async fn on_message(&mut self, message: Message) -> Option<State> {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, term, preceding_position: _, entries_term: _, entries: _ } => {
-                self.on_append_request(leader_id, term).await
+            AppendRequest { leader_id, term, preceding_position, entries_term: _, entries: _ } => {
+                self.on_append_request(leader_id, term, preceding_position).await
             },
             AppendResponse {member_id: _, term, success: _, position: _} => {
                 self.on_append_response(term)
@@ -93,12 +93,12 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         }
     }
 
-    async fn on_append_request(&mut self, leader_id: Id, term: u64) -> Option<State> {
+    async fn on_append_request(&mut self, leader_id: Id, term: u64, preceding_position: Position) -> Option<State> {
         if self.term > term {
             self.cluster
                 .send(
                     &leader_id,
-                    Message::append_response(self.id, self.term, false, *self.storage.head()),
+                    Message::append_response(self.id, self.term, false, preceding_position),
                 )
                 .await;
             return None;
