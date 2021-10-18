@@ -70,20 +70,22 @@ impl Storage for VolatileStorage {
         }
     }
 
-    async fn at(&self, position: &Position) -> Option<(&Position, &Payload)> {
+    async fn at<'a, 'b>(&'a self, position: &'b Position) -> Option<(&'a Position, &'b Position, &'a Payload)> {
         self.entries
             .range(..position)
             .next_back()
             .map(|(position, _)| position)
             .zip(self.entries.get(position))
+            .map(|(p, e)| (p, position, e))
     }
 
-    async fn next(&self, position: &Position) -> Option<(&Position, &Payload)> {
+    async fn next<'a, 'b>(&'a self, position: &'b Position) -> Option<(&'b Position, &'a Position, &'a Payload)> {
         self.entries
             .range(position..)
             .into_iter()
             .skip_while(|(p, _)| p == position)
             .next()
+            .map(|(p, e)| (position, p, e))
     }
 }
 
@@ -133,31 +135,31 @@ mod tests {
 
         assert_eq!(
             storage.at(&Position::of(1, 0)).await,
-            Some((&Position::of(0, 0), &bytes(1)))
+            Some((&Position::of(0, 0), &Position::of(1, 0), &bytes(1)))
         );
         assert_eq!(
             storage.at(&Position::of(1, 1)).await,
-            Some((&Position::of(1, 0), &bytes(2)))
+            Some((&Position::of(1, 0), &Position::of(1, 1), &bytes(2)))
         );
         assert_eq!(storage.at(&Position::of(1, 2)).await, None);
         assert_eq!(
             storage.at(&Position::of(2, 0)).await,
-            Some((&Position::of(1, 1), &bytes(3)))
+            Some((&Position::of(1, 1), &Position::of(2, 0), &bytes(3)))
         );
         assert_eq!(storage.at(&Position::of(2, 1)).await, None);
         assert_eq!(storage.at(&Position::of(3, 0)).await, None);
 
         assert_eq!(
             storage.next(&Position::of(0, 0)).await,
-            Some((&Position::of(1, 0), &bytes(1)))
+            Some((&Position::of(0, 0), &Position::of(1, 0), &bytes(1)))
         );
         assert_eq!(
             storage.next(&Position::of(1, 0)).await,
-            Some((&Position::of(1, 1), &bytes(2)))
+            Some((&Position::of(1, 0), &Position::of(1, 1), &bytes(2)))
         );
         assert_eq!(
             storage.next(&Position::of(1, 1)).await,
-            Some((&Position::of(2, 0), &bytes(3)))
+            Some((&Position::of(1, 1), &Position::of(2, 0), &bytes(3)))
         );
     }
 
@@ -182,31 +184,31 @@ mod tests {
 
         assert_eq!(
             storage.at(&Position::of(1, 0)).await,
-            Some((&Position::of(0, 0), &bytes(1)))
+            Some((&Position::of(0, 0), &Position::of(1, 0), &bytes(1)))
         );
         assert_eq!(
             storage.at(&Position::of(1, 1)).await,
-            Some((&Position::of(1, 0), &bytes(2)))
+            Some((&Position::of(1, 0), &Position::of(1, 1), &bytes(2)))
         );
         assert_eq!(storage.at(&Position::of(1, 2)).await, None);
         assert_eq!(
             storage.at(&Position::of(2, 0)).await,
-            Some((&Position::of(1, 1), &bytes(3)))
+            Some((&Position::of(1, 1), &Position::of(2, 0), &bytes(3)))
         );
         assert_eq!(storage.at(&Position::of(2, 1)).await, None);
         assert_eq!(storage.at(&Position::of(3, 0)).await, None);
 
         assert_eq!(
             storage.next(&Position::of(0, 0)).await,
-            Some((&Position::of(1, 0), &bytes(1)))
+            Some((&Position::of(0, 0), &Position::of(1, 0), &bytes(1)))
         );
         assert_eq!(
             storage.next(&Position::of(1, 0)).await,
-            Some((&Position::of(1, 1), &bytes(2)))
+            Some((&Position::of(1, 0), &Position::of(1, 1), &bytes(2)))
         );
         assert_eq!(
             storage.next(&Position::of(1, 1)).await,
-            Some((&Position::of(2, 0), &bytes(3)))
+            Some((&Position::of(1, 1), &Position::of(2, 0), &bytes(3)))
         );
     }
 
@@ -259,11 +261,11 @@ mod tests {
 
         assert_eq!(
             storage.at(&Position::of(5, 0)).await,
-            Some((&Position::of(0, 0), &bytes(1)))
+            Some((&Position::of(0, 0), &Position::of(5, 0), &bytes(1)))
         );
         assert_eq!(
             storage.at(&Position::of(5, 1)).await,
-            Some((&Position::of(5, 0), &bytes(4)))
+            Some((&Position::of(5, 0), &Position::of(5, 1), &bytes(4)))
         );
         assert_eq!(storage.at(&Position::of(5, 2)).await, None);
         assert_eq!(storage.at(&Position::of(10, 0)).await, None);
@@ -277,15 +279,15 @@ mod tests {
 
         assert_eq!(
             storage.next(&Position::of(0, 0)).await,
-            Some((&Position::of(10, 0), &bytes(100)))
+            Some((&Position::of(0, 0), &Position::of(10, 0), &bytes(100)))
         );
         assert_eq!(
             storage.next(&Position::of(0, 100)).await,
-            Some((&Position::of(10, 0), &bytes(100)))
+            Some((&Position::of(0, 100), &Position::of(10, 0), &bytes(100)))
         );
         assert_eq!(
             storage.next(&Position::of(5, 5)).await,
-            Some((&Position::of(10, 0), &bytes(100)))
+            Some((&Position::of(5, 5), &Position::of(10, 0), &bytes(100)))
         );
     }
 

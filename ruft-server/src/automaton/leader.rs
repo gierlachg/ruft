@@ -130,42 +130,36 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             // TODO: redirect all pending requests
             Some(State::follower(position.term(), None))
         } else if success {
-            match self
-                .storage
-                .next(&position)
-                .await
-                .map(|(p, e)| (position, p.clone(), e))
-            {
+            match self.storage.next(&position).await {
                 Some((preceding_position, position, entry)) => {
-                    let message = Message::append_request(
-                        self.id,
-                        self.term,
-                        preceding_position,
-                        position.term(),
-                        vec![entry.clone()],
-                    );
-                    self.cluster.send(&member_id, message).await;
-                    self.registry.on_success(&member_id, position, preceding_position);
+                    let updated = self.registry.on_success(&member_id, position, preceding_position);
+                    if updated {
+                        let message = Message::append_request(
+                            self.id,
+                            self.term,
+                            *preceding_position,
+                            position.term(),
+                            vec![entry.clone()],
+                        );
+                        self.cluster.send(&member_id, message).await;
+                    }
                 }
-                None => self.registry.on_success(&member_id, position.next(), position),
+                None => {
+                    self.registry.on_success(&member_id, &position.next(), &position);
+                }
             }
             None
         } else {
-            let (preceding_position, position, entry) = self
-                .storage
-                .at(&position)
-                .await
-                .map(|(p, e)| (p.clone(), position, e))
-                .expect("Missing entry");
+            let (preceding_position, position, entry) = self.storage.at(&position).await.expect("Missing entry");
+            self.registry.on_failure(&member_id, position);
             let message = Message::append_request(
                 self.id,
                 self.term,
-                preceding_position,
+                *preceding_position,
                 position.term(),
                 vec![entry.clone()],
             );
             self.cluster.send(&member_id, message).await;
-            self.registry.on_failure(&member_id, position);
             None
         }
     }
@@ -203,7 +197,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             StoreRequest { payload } => {
                 let position = self.storage.extend(self.term, vec![payload]).await;
                 self.registry.on_client_request(position, responder);
-                self.replicate(self.registry.nexts_replicated(position)).await;
+                self.replicate(self.registry.nexts_with(position)).await;
             }
         }
     }
@@ -217,7 +211,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
     async fn replicate_single(&self, member_id: &Id, position: &Position) {
         let message = match self.storage.at(&position).await {
-            Some((preceding_position, entry)) => Message::append_request(
+            Some((preceding_position, position, entry)) => Message::append_request(
                 self.id,
                 self.term,
                 *preceding_position,
@@ -257,45 +251,48 @@ impl Registry {
         }
     }
 
-    fn on_failure(&mut self, member_id: &Id, missing: Position) {
+    fn on_failure(&mut self, member_id: &Id, missing: &Position) {
         self.records
             .get_mut(member_id)
             .expect("Missing member entry")
             .on_failure(missing)
     }
 
-    fn on_success(&mut self, member_id: &Id, next: Position, replicated: Position) {
-        self.records
+    fn on_success(&mut self, member_id: &Id, next: &Position, replicated: &Position) -> bool {
+        let updated = self
+            .records
             .get_mut(member_id)
             .expect("Missing member entry")
             .on_success(next, replicated);
-
-        loop {
-            match self.responders.back() {
-                None => break,
-                Some((position, _)) if *position > replicated => break,
-                Some((position, _)) => {
-                    let replications = self
-                        .records
-                        .values()
-                        .filter(|record| record.already_replicated(&position))
-                        .count();
-                    if replications >= (self.records.len() + 1) / 2 {
-                        // safety: self.responders.back() above guarantees an item exists
-                        self.responders.pop_back().unwrap().1.respond_with_success()
-                    } else {
-                        break;
+        if updated {
+            loop {
+                match self.responders.back() {
+                    None => break,
+                    Some((position, _)) if position > replicated => break,
+                    Some((position, _)) => {
+                        let replications = self
+                            .records
+                            .values()
+                            .filter(|record| record.already_replicated(&position))
+                            .count();
+                        if replications >= (self.records.len() + 1) / 2 {
+                            // safety: self.responders.back() above guarantees an item exists
+                            self.responders.pop_back().unwrap().1.respond_with_success()
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
         }
+        updated
     }
 
     fn nexts(&self) -> impl Iterator<Item = (&Id, &Position)> {
         self.records.iter().map(|(id, record)| (id, record.next()))
     }
 
-    fn nexts_replicated(&self, position: Position) -> impl Iterator<Item = (&Id, &Position)> {
+    fn nexts_with(&self, position: Position) -> impl Iterator<Item = (&Id, &Position)> {
         self.records
             .iter()
             .filter(move |(_, record)| record.next() == position)
@@ -321,13 +318,18 @@ impl Record {
         &self.next
     }
 
-    fn on_failure(&mut self, missing: Position) {
-        self.next = missing
+    fn on_failure(&mut self, missing: &Position) {
+        self.next = *missing
     }
 
-    fn on_success(&mut self, next: Position, replicated: Position) {
-        self.next = next;
-        self.replicated.replace(replicated);
+    fn on_success(&mut self, next: &Position, replicated: &Position) -> bool {
+        if next > &self.next {
+            self.next = *next;
+            self.replicated.replace(*replicated);
+            true
+        } else {
+            false
+        }
     }
 
     fn already_replicated(&self, position: &Position) -> bool {

@@ -24,9 +24,9 @@ pub(crate) trait Storage {
         entries: Vec<Payload>,
     ) -> Result<Position, Position>;
 
-    async fn at(&self, position: &Position) -> Option<(&Position, &Payload)>;
+    async fn at<'a, 'b>(&'a self, position: &'b Position) -> Option<(&'a Position, &'b Position, &'a Payload)>;
 
-    async fn next(&self, position: &Position) -> Option<(&Position, &Payload)>;
+    async fn next<'a, 'b>(&'a self, position: &'b Position) -> Option<(&'b Position, &'a Position, &'a Payload)>;
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, Serialize, Deserialize)]
