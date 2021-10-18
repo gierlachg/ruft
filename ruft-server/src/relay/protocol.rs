@@ -6,7 +6,7 @@ use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::relay::protocol::Response::{StoreRedirectResponse, StoreSuccessResponse};
-use crate::Payload;
+use crate::{Payload, Position};
 
 const STORE_REQUEST_ID: u16 = 1;
 const STORE_SUCCESS_RESPONSE_ID: u16 = 2;
@@ -15,8 +15,11 @@ const STORE_REDIRECT_RESPONSE_ID: u16 = 3;
 #[derive(Display, Debug, Deserialize)]
 #[repr(u16)]
 pub(crate) enum Request {
-    #[display(fmt = "StoreRequest {{ }}")]
-    StoreRequest { payload: Payload } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(fmt = "StoreRequest {{ position: {:?} }}", position)]
+    StoreRequest {
+        payload: Payload,
+        position: Option<Position>,
+    } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl TryFrom<Bytes> for Request {
@@ -33,8 +36,15 @@ pub(crate) enum Response {
     #[display(fmt = "StoreSuccessResponse {{ }}")]
     StoreSuccessResponse {} = STORE_SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 
-    #[display(fmt = "StoreRedirectResponse {{ leader_address: {:?} }}", leader_address)]
-    StoreRedirectResponse { leader_address: Option<SocketAddr> } = STORE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(
+        fmt = "StoreRedirectResponse {{ leader_address: {:?}, position: {:?} }}",
+        leader_address,
+        position
+    )]
+    StoreRedirectResponse {
+        leader_address: Option<SocketAddr>,
+        position: Option<Position>,
+    } = STORE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Response {
@@ -42,8 +52,11 @@ impl Response {
         StoreSuccessResponse {}
     }
 
-    pub(crate) fn store_redirect_response(leader_address: Option<SocketAddr>) -> Self {
-        StoreRedirectResponse { leader_address }
+    pub(crate) fn store_redirect_response(leader_address: Option<SocketAddr>, position: Option<Position>) -> Self {
+        StoreRedirectResponse {
+            leader_address,
+            position,
+        }
     }
 }
 

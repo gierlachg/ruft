@@ -31,7 +31,7 @@ impl RuftClient {
     }
 
     pub async fn store(&mut self, payload: Payload) -> Result<()> {
-        let request = Request::store_request(payload);
+        let request = Request::store_request(payload, None);
         self.relay.send(request).await
     }
 }

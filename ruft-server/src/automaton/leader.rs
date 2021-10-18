@@ -115,7 +115,12 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             term,
             leader_id
         );
-        // TODO: redirect all pending requests
+        self.registry.responders().for_each(|(position, responder)| {
+            responder.respond_with_redirect(
+                Some(*self.cluster.endpoint(&leader_id).client_address()),
+                Some(position),
+            )
+        });
         Some(State::follower(term, Some(leader_id)))
     }
 
@@ -127,7 +132,9 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         position: Position,
     ) -> Option<State> {
         if term > self.term {
-            // TODO: redirect all pending requests
+            self.registry
+                .responders()
+                .for_each(|(position, responder)| responder.respond_with_redirect(None, Some(position)));
             Some(State::follower(position.term(), None))
         } else if success {
             match self.storage.next(&position).await {
@@ -173,7 +180,9 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
 
         if term > self.term {
-            // TODO: redirect all pending requests
+            self.registry
+                .responders()
+                .for_each(|(position, responder)| responder.respond_with_redirect(None, Some(position)));
             Some(State::follower(term, None))
         } else {
             None
@@ -182,7 +191,9 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
     fn on_vote_response(&mut self, term: u64) -> Option<State> {
         if term > self.term {
-            // TODO: redirect all pending requests
+            self.registry
+                .responders()
+                .for_each(|(position, responder)| responder.respond_with_redirect(None, Some(position)));
             Some(State::follower(term, None))
         } else {
             None
@@ -191,11 +202,17 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 
     async fn on_client_request(&mut self, request: Request, responder: Responder) {
         match request {
-            StoreRequest { payload } => {
-                let position = self.storage.extend(self.term, vec![payload]).await;
-                self.registry.on_client_request(position, responder);
-                self.replicate(self.registry.nexts_with(position)).await;
-            }
+            StoreRequest { payload, position } => match position {
+                Some(position) if self.storage.at(&position).await.is_some() => {
+                    assert!(position.term() < self.term);
+                    responder.respond_with_success();
+                }
+                _ => {
+                    let position = self.storage.extend(self.term, vec![payload]).await;
+                    self.registry.on_client_request(position, responder);
+                    self.replicate(self.registry.nexts_with(position)).await;
+                }
+            },
         }
     }
 
@@ -294,6 +311,10 @@ impl Registry {
             .iter()
             .filter(move |(_, record)| record.next() == position)
             .map(|(id, record)| (id, record.next()))
+    }
+
+    fn responders(&mut self) -> impl Iterator<Item = (Position, Responder)> {
+        self.responders.split_off(0).into_iter()
     }
 }
 

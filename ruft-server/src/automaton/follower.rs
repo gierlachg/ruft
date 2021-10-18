@@ -176,6 +176,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         let leader_address = self
             .leader_id
             .map(|ref leader_id| *self.cluster.endpoint(leader_id).client_address());
-        responder.respond_with_redirect(leader_address);
+        responder.respond_with_redirect(leader_address, None);
     }
 }

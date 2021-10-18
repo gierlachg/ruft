@@ -35,13 +35,14 @@ impl Broker {
                 result = connection.read() => match result.and_then(Result::ok).and_then(|bytes| Response::try_from(bytes).ok()) {
                     Some(response) => match response {
                         StoreSuccessResponse {} =>  exchanges.dequeue().responder().respond_with_success(),
-                        StoreRedirectResponse {leader_address} => match leader_address {
+                        StoreRedirectResponse {leader_address, position} => match leader_address {
                             Some(leader_address) if &leader_address != connection.endpoint() => {
                                 Self::drain(connection, exchanges.split_off(1), requests.0.clone());
+                                exchanges.requeue(position);
                                 break DISCONNECTED(vec!(leader_address), exchanges)
                             }
                             _ => {
-                                let exchange = exchanges.requeue();
+                                let exchange = exchanges.requeue(position);
                                 if let Err(_) = exchange.write(&mut connection).await {
                                     exchanges.fail();
                                     break DISCONNECTED(endpoints.clone(), Exchanges::new())
@@ -70,9 +71,14 @@ impl Broker {
                 {
                     Some(response) => match response {
                         StoreSuccessResponse {} => exchanges.dequeue().responder().respond_with_success(),
-                        StoreRedirectResponse { leader_address: _ } => {
+                        StoreRedirectResponse {
+                            leader_address: _,
+                            position,
+                        } => {
                             let Exchange(request, responder) = exchanges.dequeue();
-                            requests.send((request, responder)).unwrap_or(())
+                            requests
+                                .send((request.with_position(position), responder))
+                                .unwrap_or(())
                         }
                     },
                     None => break exchanges.fail(),

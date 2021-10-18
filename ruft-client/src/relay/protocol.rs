@@ -15,13 +15,22 @@ const STORE_REDIRECT_RESPONSE_ID: u16 = 3;
 #[derive(Display, Serialize)]
 #[repr(u16)]
 pub(crate) enum Request {
-    #[display(fmt = "StoreRequest {{ }}")]
-    StoreRequest { payload: Payload } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(fmt = "StoreRequest {{ position: {:?} }}", position)]
+    StoreRequest {
+        payload: Payload,
+        position: Option<Position>,
+    } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Request {
-    pub(crate) fn store_request(payload: Payload) -> Self {
-        StoreRequest { payload }
+    pub(crate) fn store_request(payload: Payload, position: Option<Position>) -> Self {
+        StoreRequest { payload, position }
+    }
+
+    pub(crate) fn with_position(self, position: Option<Position>) -> Self {
+        match self {
+            StoreRequest { payload, position: _ } => StoreRequest { payload, position },
+        }
     }
 }
 
@@ -37,8 +46,15 @@ pub(crate) enum Response {
     #[display(fmt = "StoreSuccessResponse {{ }}")]
     StoreSuccessResponse {} = STORE_SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 
-    #[display(fmt = "StoreRedirectResponse {{ leader_address: {:?} }}", leader_address)]
-    StoreRedirectResponse { leader_address: Option<SocketAddr> } = STORE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(
+        fmt = "StoreRedirectResponse {{ leader_address: {:?}, position: {:?} }}",
+        leader_address,
+        position
+    )]
+    StoreRedirectResponse {
+        leader_address: Option<SocketAddr>,
+        position: Option<Position>,
+    } = STORE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl TryFrom<Bytes> for Response {
@@ -48,3 +64,6 @@ impl TryFrom<Bytes> for Response {
         bincode::deserialize(bytes.as_ref()).map_err(|_| ()) // TODO: error
     }
 }
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct Position(u64, u64);

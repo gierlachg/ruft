@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::relay::broker::Broker;
 use crate::relay::connector::Connector;
-use crate::relay::protocol::Request;
+use crate::relay::protocol::{Position, Request};
 use crate::relay::tcp::Connection;
 use crate::relay::State::{CONNECTED, DISCONNECTED, TERMINATED};
 use crate::{Result, RuftClientError};
@@ -92,9 +92,9 @@ impl Exchanges {
         self.0.pop_back().expect("No exchange!")
     }
 
-    fn requeue(&mut self) -> &Exchange {
+    fn requeue(&mut self, position: Option<Position>) -> &Exchange {
         let Exchange(request, responder) = self.dequeue();
-        self.enqueue(request, responder)
+        self.enqueue(request.with_position(position), responder)
     }
 
     fn split_off(&mut self, at: usize) -> Exchanges {

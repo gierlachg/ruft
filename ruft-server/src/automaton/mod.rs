@@ -12,7 +12,7 @@ use crate::cluster::Cluster;
 use crate::relay::protocol::Response;
 use crate::relay::Relay;
 use crate::storage::Storage;
-use crate::Id;
+use crate::{Id, Position};
 
 mod candidate;
 mod follower;
@@ -101,8 +101,10 @@ impl Responder {
         self.0.send(Response::store_success_response()).unwrap_or(())
     }
 
-    fn respond_with_redirect(&self, address: Option<SocketAddr>) {
+    fn respond_with_redirect(&self, address: Option<SocketAddr>, position: Option<Position>) {
         // safety: client already disconnected
-        self.0.send(Response::store_redirect_response(address)).unwrap_or(())
+        self.0
+            .send(Response::store_redirect_response(address, position))
+            .unwrap_or(())
     }
 }

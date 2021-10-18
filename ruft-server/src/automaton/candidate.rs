@@ -147,6 +147,6 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
     }
 
     fn on_client_request(&mut self, _: Request, responder: Responder) {
-        responder.respond_with_redirect(None)
+        responder.respond_with_redirect(None, None)
     }
 }
