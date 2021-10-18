@@ -93,7 +93,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 self.on_vote_request(candidate_id, term).await
             },
             VoteResponse {member_id: _, term, vote_granted: _} => {
-                self.on_vote_response(term)
+                self.on_vote_response(term).await
             },
         }
     }
@@ -115,12 +115,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             term,
             leader_id
         );
-        self.registry.responders().for_each(|(position, responder)| {
-            responder.respond_with_redirect(
-                Some(*self.cluster.endpoint(&leader_id).client_address()),
-                Some(position),
-            )
-        });
+        self.redirect_client_requests(Some(&leader_id)).await;
         Some(State::follower(term, Some(leader_id)))
     }
 
@@ -132,9 +127,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         position: Position,
     ) -> Option<State> {
         if term > self.term {
-            self.registry
-                .responders()
-                .for_each(|(position, responder)| responder.respond_with_redirect(None, Some(position)));
+            self.redirect_client_requests(None).await;
             Some(State::follower(position.term(), None))
         } else if success {
             match self.storage.next(&position).await {
@@ -180,20 +173,16 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
 
         if term > self.term {
-            self.registry
-                .responders()
-                .for_each(|(position, responder)| responder.respond_with_redirect(None, Some(position)));
+            self.redirect_client_requests(None).await;
             Some(State::follower(term, None))
         } else {
             None
         }
     }
 
-    fn on_vote_response(&mut self, term: u64) -> Option<State> {
+    async fn on_vote_response(&mut self, term: u64) -> Option<State> {
         if term > self.term {
-            self.registry
-                .responders()
-                .for_each(|(position, responder)| responder.respond_with_redirect(None, Some(position)));
+            self.redirect_client_requests(None).await;
             Some(State::follower(term, None))
         } else {
             None
@@ -235,6 +224,13 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             None => Message::append_request(self.id, self.term, *self.storage.head(), self.term, vec![]),
         };
         self.cluster.send(&member_id, message).await;
+    }
+
+    async fn redirect_client_requests(&mut self, leader_id: Option<&Id>) {
+        let leader_address = leader_id.map(|leader_id| *self.cluster.endpoint(leader_id).client_address());
+        self.registry
+            .responders()
+            .for_each(|(position, responder)| responder.respond_with_redirect(leader_address, Some(position)))
     }
 }
 
