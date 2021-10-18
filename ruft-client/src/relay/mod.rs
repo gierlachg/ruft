@@ -131,10 +131,12 @@ struct Responder(oneshot::Sender<Result<()>>);
 
 impl Responder {
     fn respond_with_success(self) {
+        // safety: client already dropped
         self.0.send(Ok(())).unwrap_or(())
     }
 
     fn respond_with_error(self) {
+        // safety: client already dropped
         self.0
             .send(Err(RuftClientError::generic_failure(
                 "Error occurred while communicating with the cluster",
