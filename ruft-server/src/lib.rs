@@ -12,7 +12,6 @@ use std::time::Duration;
 use bytes::Bytes;
 use derive_more::Display;
 use log::info;
-use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::cluster::PhysicalCluster;
@@ -35,7 +34,7 @@ pub async fn run(
     info!("Initializing Ruft server (version: {})", env!("CARGO_PKG_VERSION"));
 
     let heartbeat_interval = Duration::from_millis(HEARTBEAT_INTERVAL_MILLIS);
-    let election_timeout = Duration::from_millis(ELECTION_TIMEOUT_BASE_MILLIS + rand::thread_rng().gen_range(0..=250));
+    let election_timeout = Duration::from_millis(ELECTION_TIMEOUT_BASE_MILLIS);
 
     let (local_endpoint, remote_endpoints) = to_endpoints(local, remotes);
     let shutdown = Shutdown::watch();

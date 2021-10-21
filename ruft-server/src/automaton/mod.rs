@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use derive_more::Display;
 use log::info;
+use rand::Rng;
 
 use crate::automaton::candidate::Candidate;
 use crate::automaton::follower::Follower;
@@ -39,6 +40,7 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
     loop {
         state = match state {
             FOLLOWER { term, leader_id } => {
+                let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
                 Follower::init(
                     id,
                     term,
@@ -52,6 +54,7 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
                 .await
             }
             CANDIDATE { term } => {
+                let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
                 Candidate::init(id, term, &mut storage, &mut cluster, &mut relay, election_timeout)
                     .run()
                     .await
