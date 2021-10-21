@@ -291,7 +291,7 @@ impl Registry {
             loop {
                 match self.responders.back() {
                     Some((position, _)) if position <= replicated => {
-                        if self.already_replicated_on_majority(&position) {
+                        if self.replicated_on_majority(&position) {
                             self.committed = *position;
                             // safety: self.responders.back() above guarantees an item exists
                             self.responders.pop_back().unwrap().1.respond_with_success()
@@ -300,7 +300,7 @@ impl Registry {
                         }
                     }
                     _ if replicated > &self.committed => {
-                        if self.already_replicated_on_majority(&replicated) {
+                        if self.replicated_on_majority(&replicated) {
                             self.committed = *replicated;
                         }
                         break;
@@ -312,10 +312,10 @@ impl Registry {
         updated
     }
 
-    fn already_replicated_on_majority(&self, position: &Position) -> bool {
+    fn replicated_on_majority(&self, position: &Position) -> bool {
         self.records
             .values()
-            .filter(|record| record.already_replicated(&position))
+            .filter(|record| record.replicated(&position))
             .count()
             + 1
             > self.records.len() / 2
@@ -354,6 +354,10 @@ impl Record {
         }
     }
 
+    fn replicated(&self, position: &Position) -> bool {
+        self.replicated >= *position
+    }
+
     fn next(&self) -> &Position {
         &self.next
     }
@@ -370,9 +374,5 @@ impl Record {
         } else {
             false
         }
-    }
-
-    fn already_replicated(&self, position: &Position) -> bool {
-        self.replicated >= *position
     }
 }
