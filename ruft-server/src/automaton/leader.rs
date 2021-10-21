@@ -83,8 +83,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     async fn on_message(&mut self, message: Message) -> Option<State> {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, term, preceding_position, entries_term: _, entries: _ } => {
-                self.on_append_request(leader_id, term, preceding_position).await
+            AppendRequest { leader_id, term, preceding, entries_term: _, entries: _, committed: _ } => {
+                self.on_append_request(leader_id, term, preceding).await
             },
             AppendResponse { member_id, term, success, position } => {
                 self.on_append_response(member_id, term, success, position).await
@@ -98,12 +98,12 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
     }
 
-    async fn on_append_request(&mut self, leader_id: Id, term: u64, preceding_position: Position) -> Option<State> {
+    async fn on_append_request(&mut self, leader_id: Id, term: u64, preceding: Position) -> Option<State> {
         if self.term > term {
             self.cluster
                 .send(
                     &leader_id,
-                    Message::append_response(self.id, self.term, false, preceding_position),
+                    Message::append_response(self.id, self.term, false, preceding),
                 )
                 .await;
             return None;
@@ -132,7 +132,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         } else if success {
             match self.storage.next(&position).await {
                 Some((preceding_position, position, entry)) => {
-                    let updated = self.registry.on_success(&member_id, position, preceding_position);
+                    let updated = self.registry.on_success(&member_id, preceding_position, position);
                     if updated {
                         let message = Message::append_request(
                             self.id,
@@ -140,12 +140,13 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                             *preceding_position,
                             position.term(),
                             vec![entry.clone()],
+                            *self.registry.committed(),
                         );
                         self.cluster.send(&member_id, message).await;
                     }
                 }
                 None => {
-                    self.registry.on_success(&member_id, &position.next(), &position);
+                    self.registry.on_success(&member_id, &position, &position.next());
                 }
             }
             None
@@ -158,6 +159,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 *preceding_position,
                 position.term(),
                 vec![entry.clone()],
+                *self.registry.committed(),
             );
             self.cluster.send(&member_id, message).await;
             None
@@ -220,8 +222,16 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
                 *preceding_position,
                 position.term(),
                 vec![entry.clone()],
+                *self.registry.committed(),
             ),
-            None => Message::append_request(self.id, self.term, *self.storage.head(), self.term, vec![]),
+            None => Message::append_request(
+                self.id,
+                self.term,
+                *self.storage.head(),
+                self.term,
+                vec![],
+                *self.registry.committed(),
+            ),
         };
         self.cluster.send(&member_id, message).await;
     }
@@ -237,6 +247,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
 struct Registry {
     records: HashMap<Id, Record>,
     responders: VecDeque<(Position, Responder)>,
+    committed: Position,
 }
 
 impl Registry {
@@ -244,6 +255,7 @@ impl Registry {
         Registry {
             records: HashMap::new(),
             responders: VecDeque::new(),
+            committed: Position::initial(),
         }
     }
 
@@ -255,6 +267,7 @@ impl Registry {
 
     fn on_client_request(&mut self, position: Position, responder: Responder) {
         if self.records.len() == 0 {
+            self.committed = position;
             responder.respond_with_success()
         } else {
             self.responders.push_front((position, responder));
@@ -268,34 +281,44 @@ impl Registry {
             .on_failure(missing)
     }
 
-    fn on_success(&mut self, member_id: &Id, next: &Position, replicated: &Position) -> bool {
+    fn on_success(&mut self, member_id: &Id, replicated: &Position, next: &Position) -> bool {
         let updated = self
             .records
             .get_mut(member_id)
             .expect("Missing member entry")
-            .on_success(next, replicated);
+            .on_success(replicated, next);
         if updated {
             loop {
                 match self.responders.back() {
-                    None => break,
-                    Some((position, _)) if position > replicated => break,
-                    Some((position, _)) => {
-                        let replications = self
-                            .records
-                            .values()
-                            .filter(|record| record.already_replicated(&position))
-                            .count();
-                        if replications >= (self.records.len() + 1) / 2 {
+                    Some((position, _)) if position <= replicated => {
+                        if self.already_replicated_on_majority(&position) {
+                            self.committed = *position;
                             // safety: self.responders.back() above guarantees an item exists
                             self.responders.pop_back().unwrap().1.respond_with_success()
                         } else {
                             break;
                         }
                     }
+                    _ if replicated > &self.committed => {
+                        if self.already_replicated_on_majority(&replicated) {
+                            self.committed = *replicated;
+                        }
+                        break;
+                    }
+                    _ => break,
                 }
             }
         }
         updated
+    }
+
+    fn already_replicated_on_majority(&self, position: &Position) -> bool {
+        self.records
+            .values()
+            .filter(|record| record.already_replicated(&position))
+            .count()
+            + 1
+            > self.records.len() / 2
     }
 
     fn nexts(&self) -> impl Iterator<Item = (&Id, &Position)> {
@@ -312,18 +335,22 @@ impl Registry {
     fn responders(&mut self) -> impl Iterator<Item = (Position, Responder)> {
         self.responders.split_off(0).into_iter()
     }
+
+    fn committed(&self) -> &Position {
+        &self.committed
+    }
 }
 
 struct Record {
+    replicated: Position,
     next: Position,
-    replicated: Option<Position>,
 }
 
 impl Record {
     fn new(position: Position) -> Self {
         Record {
+            replicated: Position::initial(),
             next: position,
-            replicated: None,
         }
     }
 
@@ -335,10 +362,10 @@ impl Record {
         self.next = *missing
     }
 
-    fn on_success(&mut self, next: &Position, replicated: &Position) -> bool {
-        if next > &self.next {
+    fn on_success(&mut self, replicated: &Position, next: &Position) -> bool {
+        if replicated > &self.replicated {
+            self.replicated = *replicated;
             self.next = *next;
-            self.replicated.replace(*replicated);
             true
         } else {
             false
@@ -346,6 +373,6 @@ impl Record {
     }
 
     fn already_replicated(&self, position: &Position) -> bool {
-        self.replicated.map_or(false, |replicated| replicated >= *position)
+        self.replicated >= *position
     }
 }

@@ -14,12 +14,7 @@ pub(crate) trait Storage {
 
     async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position;
 
-    async fn insert(
-        &mut self,
-        preceding_position: &Position,
-        term: u64,
-        entries: Vec<Payload>,
-    ) -> Result<Position, Position>;
+    async fn insert(&mut self, preceding: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position>;
 
     async fn at<'a, 'b>(&'a self, position: &'b Position) -> Option<(&'a Position, &'b Position, &'a Payload)>;
 

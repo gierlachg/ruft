@@ -13,7 +13,7 @@ pub(crate) struct VolatileStorage {
 impl VolatileStorage {
     pub(crate) fn init() -> Self {
         let mut entries = BTreeMap::new();
-        entries.insert(Position::of(0, 0), noop_message());
+        entries.insert(Position::initial(), noop_message());
 
         VolatileStorage { entries }
     }
@@ -41,19 +41,14 @@ impl Storage for VolatileStorage {
         head
     }
 
-    async fn insert(
-        &mut self,
-        preceding_position: &Position,
-        term: u64,
-        entries: Vec<Payload>,
-    ) -> Result<Position, Position> {
+    async fn insert(&mut self, preceding: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position> {
         assert!(term > 0);
 
         if let Some(position) = self
             .entries
-            .range(preceding_position..)
+            .range(preceding..)
             .into_iter()
-            .skip_while(|(position, _)| position == preceding_position)
+            .skip_while(|(position, _)| position == preceding)
             .next()
             .map(|(position, _)| position.clone())
         {
@@ -61,12 +56,12 @@ impl Storage for VolatileStorage {
         }
 
         let head = self.head();
-        if head == preceding_position {
+        if head == preceding {
             Ok(self.extend(term, entries).await)
-        } else if head.term() == preceding_position.term() {
+        } else if head.term() == preceding.term() {
             Err(head.next())
         } else {
-            Err(*preceding_position)
+            Err(*preceding)
         }
     }
 

@@ -131,6 +131,10 @@ fn to_endpoints(local: (SocketAddr, SocketAddr), remotes: Vec<(SocketAddr, Socke
 struct Position(u64, u64);
 
 impl Position {
+    fn initial() -> Self {
+        Position(0, 0)
+    }
+
     fn of(term: u64, index: u64) -> Self {
         Position(term, index)
     }

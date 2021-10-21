@@ -72,8 +72,8 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
     async fn on_message(&mut self, message: Message) -> bool {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, term, preceding_position, entries_term, entries } => {
-                self.on_append_request(leader_id, term, preceding_position,  entries_term, entries).await;
+            AppendRequest { leader_id, term, preceding, entries_term, entries, committed } => {
+                self.on_append_request(leader_id, term, preceding,  entries_term, entries, committed).await;
                 true
             },
             AppendResponse {member_id: _, term, success: _, position: _} => {
@@ -95,25 +95,26 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         &mut self,
         leader_id: Id,
         term: u64,
-        preceding_position: Position,
+        preceding: Position,
         entries_term: u64,
         entries: Vec<Payload>,
+        _committed: Position,
     ) {
         if self.term > term {
             return self
                 .cluster
                 .send(
                     &leader_id,
-                    Message::append_response(self.id, self.term, false, preceding_position),
+                    Message::append_response(self.id, self.term, false, preceding),
                 )
                 .await;
         }
 
         self.term = term;
         self.leader_id.replace(leader_id);
-        match self.storage.insert(&preceding_position, entries_term, entries).await {
+        match self.storage.insert(&preceding, entries_term, entries).await {
             Ok(position) => {
-                info!("Accepted: {:?}", position);
+                info!("Accepted: {:?}, committed: {:?}", position, _committed);
                 self.cluster
                     .send(&leader_id, Message::append_response(self.id, self.term, true, position))
                     .await
