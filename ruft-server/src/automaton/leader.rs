@@ -132,7 +132,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         } else if success {
             match self.storage.next(&position).await {
                 Some((preceding_position, position, entry)) => {
-                    let updated = self.registry.on_success(&member_id, preceding_position, position);
+                    let updated = self.registry.on_success(&member_id, preceding_position, &position);
                     if updated {
                         let message = Message::append_request(
                             self.id,
@@ -156,7 +156,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             let message = Message::append_request(
                 self.id,
                 self.term,
-                *preceding_position,
+                preceding_position,
                 position.term(),
                 vec![entry.clone()],
                 *self.registry.committed(),
@@ -219,7 +219,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             Some((preceding_position, position, entry)) => Message::append_request(
                 self.id,
                 self.term,
-                *preceding_position,
+                preceding_position,
                 position.term(),
                 vec![entry.clone()],
                 *self.registry.committed(),

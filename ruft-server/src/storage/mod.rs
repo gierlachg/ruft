@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 use crate::{Payload, Position};
 
+pub(crate) mod durable;
 pub(crate) mod volatile;
 
 pub(crate) fn noop_message() -> Payload {
@@ -16,7 +17,7 @@ pub(crate) trait Storage {
 
     async fn insert(&mut self, preceding: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position>;
 
-    async fn at<'a, 'b>(&'a self, position: &'b Position) -> Option<(&'a Position, &'b Position, &'a Payload)>;
+    async fn at<'a>(&self, position: &'a Position) -> Option<(Position, &'a Position, Payload)>;
 
-    async fn next<'a, 'b>(&'a self, position: &'b Position) -> Option<(&'b Position, &'a Position, &'a Payload)>;
+    async fn next<'a>(&self, position: &'a Position) -> Option<(&'a Position, Position, Payload)>;
 }

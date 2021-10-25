@@ -7,6 +7,7 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::hash::Hash;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -16,7 +17,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::cluster::PhysicalCluster;
 use crate::relay::PhysicalRelay;
-use crate::storage::volatile::VolatileStorage;
+use crate::storage::durable::DurableStorage;
 
 mod automaton;
 mod cluster;
@@ -28,6 +29,7 @@ const HEARTBEAT_INTERVAL_MILLIS: u64 = 20;
 const ELECTION_TIMEOUT_BASE_MILLIS: u64 = 250;
 
 pub async fn run(
+    log_path: impl AsRef<Path>,
     local: (SocketAddr, SocketAddr),
     remotes: Vec<(SocketAddr, SocketAddr)>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -39,7 +41,8 @@ pub async fn run(
     let (local_endpoint, remote_endpoints) = to_endpoints(local, remotes);
     let shutdown = Shutdown::watch();
 
-    let storage = VolatileStorage::init();
+    //let storage = VolatileStorage::init(); // TODO:
+    let storage = DurableStorage::init(log_path).await?;
     info!("Using {} storage", &storage);
 
     let cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints, shutdown.clone()).await?;
@@ -132,6 +135,10 @@ struct Position(u64, u64);
 impl Position {
     fn initial() -> Self {
         Position(0, 0)
+    }
+
+    fn terminal() -> Self {
+        Position(u64::MAX, u64::MAX)
     }
 
     fn of(term: u64, index: u64) -> Self {

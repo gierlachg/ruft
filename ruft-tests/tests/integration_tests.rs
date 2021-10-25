@@ -1,6 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::Path;
 
 use portpicker::pick_unused_port;
+use rand::Rng;
 
 use ruft_client::{Payload, RuftClient};
 
@@ -64,6 +66,7 @@ fn spawn_node(
 ) {
     tokio::spawn(async move {
         ruft_server::run(
+            EphemeralFile::new(),
             (local_endpoint, local_client_endpoint),
             remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
         )
@@ -77,4 +80,31 @@ fn addresses(count: usize) -> Vec<SocketAddr> {
 
 fn address() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), pick_unused_port().unwrap())
+}
+
+struct EphemeralFile(String);
+
+impl<'a> EphemeralFile {
+    fn new() -> Self {
+        let mut file = String::from("../target/tmp/ruft-");
+        rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .map(char::from)
+            .take(10)
+            .for_each(|c| file.push(c));
+        file.push_str(".log");
+        EphemeralFile(file)
+    }
+}
+
+impl AsRef<Path> for EphemeralFile {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
+
+impl Drop for EphemeralFile {
+    fn drop(&mut self) {
+        std::fs::remove_file(&self.0).expect("Unable to remove file")
+    }
 }

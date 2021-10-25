@@ -11,3 +11,5 @@ ruft-client = { path = "../ruft-client" }
 tokio = { version = "1", features = ["rt"] }
 
 portpicker = "0.1"
+
+rand = "0.8"

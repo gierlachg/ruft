@@ -7,15 +7,18 @@ use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Root};
 
+const LOG_PATH: &str = "log path";
 const LOCAL_ENDPOINT: &str = "local endpoint";
 const LOCAL_CLIENT_ENDPOINT: &str = "local client endpoint";
 const REMOTE_ENDPOINTS: &str = "remote endpoints";
 const REMOTE_CLIENT_ENDPOINTS: &str = "remote client endpoints";
+
 const LOGGING_CONFIGURATION_FILE_NAME: &str = "log4rs.yml";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let arguments = parse_arguments();
+    let log_path = arguments.value_of(LOG_PATH).unwrap();
     let local_endpoint = arguments
         .value_of(LOCAL_ENDPOINT)
         .map(|local_endpoint| parse_address(local_endpoint))
@@ -40,6 +43,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logging();
 
     ruft_server::run(
+        log_path,
         (local_endpoint, local_client_endpoint),
         remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
     )
@@ -49,6 +53,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 fn parse_arguments() -> ArgMatches<'static> {
     App::new(env!("CARGO_PKG_DESCRIPTION"))
         .version(env!("CARGO_PKG_VERSION"))
+        .arg(
+            Arg::with_name(LOG_PATH)
+                .required(true)
+                .long("log-path")
+                .alias("lp")
+                .takes_value(true)
+                .help("Path to the log file"),
+        )
         .arg(
             Arg::with_name(LOCAL_ENDPOINT)
                 .required(true)
