@@ -152,16 +152,18 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             None
         } else {
             let (preceding_position, position, entry) = self.storage.at(&position).await.expect("Missing entry");
-            self.registry.on_failure(&member_id, position);
-            let message = Message::append_request(
-                self.id,
-                self.term,
-                preceding_position,
-                position.term(),
-                vec![entry.clone()],
-                *self.registry.committed(),
-            );
-            self.cluster.send(&member_id, message).await;
+            let updated = self.registry.on_failure(&member_id, position);
+            if updated {
+                let message = Message::append_request(
+                    self.id,
+                    self.term,
+                    preceding_position,
+                    position.term(),
+                    vec![entry.clone()],
+                    *self.registry.committed(),
+                );
+                self.cluster.send(&member_id, message).await;
+            }
             None
         }
     }
@@ -274,7 +276,7 @@ impl Registry {
         }
     }
 
-    fn on_failure(&mut self, member_id: &Id, missing: &Position) {
+    fn on_failure(&mut self, member_id: &Id, missing: &Position) -> bool {
         self.records
             .get_mut(member_id)
             .expect("Missing member entry")
@@ -362,8 +364,21 @@ impl Record {
         &self.next
     }
 
-    fn on_failure(&mut self, missing: &Position) {
-        self.next = *missing
+    fn on_failure(&mut self, missing: &Position) -> bool {
+        if missing <= &self.replicated {
+            log::error!(
+                "Missing ({:?}) should already have been replicated ({:?})",
+                &missing,
+                &self.replicated
+            );
+            self.replicated = Position::initial();
+        }
+        if missing < &self.next {
+            self.next = *missing;
+            true
+        } else {
+            false
+        }
     }
 
     fn on_success(&mut self, replicated: &Position, next: &Position) -> bool {
