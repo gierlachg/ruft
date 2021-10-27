@@ -29,7 +29,7 @@ const HEARTBEAT_INTERVAL_MILLIS: u64 = 20;
 const ELECTION_TIMEOUT_BASE_MILLIS: u64 = 250;
 
 pub async fn run(
-    data_path: impl AsRef<Path>,
+    directory: impl AsRef<Path>,
     local: (SocketAddr, SocketAddr),
     remotes: Vec<(SocketAddr, SocketAddr)>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -41,7 +41,13 @@ pub async fn run(
     let (local_endpoint, remote_endpoints) = to_endpoints(local, remotes);
     let shutdown = Shutdown::watch();
 
-    let storage = DurableStorage::init(data_path).await?;
+    match tokio::fs::metadata(directory.as_ref()).await {
+        Ok(metadata) if metadata.is_dir() => {} // TODO: check empty or both files are there
+        Ok(_) => panic!("Path must be a directory"),
+        Err(_) => tokio::fs::create_dir(&directory).await.unwrap(),
+    }
+
+    let storage = DurableStorage::init(&directory).await?;
     info!("Using {} storage", &storage);
 
     let cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints, shutdown.clone()).await?;

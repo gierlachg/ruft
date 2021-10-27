@@ -7,7 +7,7 @@ use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Root};
 
-const DATA_PATH: &str = "data path";
+const DIRECTORY: &str = "directory";
 const LOCAL_ENDPOINT: &str = "local endpoint";
 const LOCAL_CLIENT_ENDPOINT: &str = "local client endpoint";
 const REMOTE_ENDPOINTS: &str = "remote endpoints";
@@ -18,7 +18,7 @@ const LOGGING_CONFIGURATION_FILE_NAME: &str = "log4rs.yml";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let arguments = parse_arguments();
-    let data_path = arguments.value_of(DATA_PATH).unwrap();
+    let directory = arguments.value_of(DIRECTORY).unwrap();
     let local_endpoint = arguments
         .value_of(LOCAL_ENDPOINT)
         .map(|local_endpoint| parse_address(local_endpoint))
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logging();
 
     ruft_server::run(
-        data_path,
+        directory,
         (local_endpoint, local_client_endpoint),
         remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
     )
@@ -54,10 +54,10 @@ fn parse_arguments() -> ArgMatches<'static> {
     App::new(env!("CARGO_PKG_DESCRIPTION"))
         .version(env!("CARGO_PKG_VERSION"))
         .arg(
-            Arg::with_name(DATA_PATH)
+            Arg::with_name(DIRECTORY)
                 .required(true)
-                .long("data-path")
-                .alias("dp")
+                .long("directory")
+                .alias("d")
                 .takes_value(true)
                 .help("Path to the data directory"),
         )

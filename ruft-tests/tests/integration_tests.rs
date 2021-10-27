@@ -92,6 +92,7 @@ impl<'a> EphemeralDirectory {
             .map(char::from)
             .take(10)
             .for_each(|c| directory.push(c));
+        std::fs::create_dir_all(&directory).expect("Unable to create directory");
         EphemeralDirectory(directory)
     }
 }

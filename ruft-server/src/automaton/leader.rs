@@ -46,7 +46,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         }
     }
 
-    pub(super) async fn run(&mut self) -> State {
+    pub(super) async fn run(mut self) -> State {
         self.registry.init(
             self.cluster.member_ids(),
             self.storage.extend(self.term, vec![noop_message()]).await,

@@ -46,7 +46,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         }
     }
 
-    pub(super) async fn run(&mut self) -> State {
+    pub(super) async fn run(mut self) -> State {
         tokio::pin! {
            let sleep = tokio::time::sleep(self.election_timeout);
         }

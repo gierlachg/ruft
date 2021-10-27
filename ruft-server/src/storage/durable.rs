@@ -18,12 +18,6 @@ pub(crate) struct DurableStorage {
 
 impl DurableStorage {
     pub(crate) async fn init(directory: impl AsRef<Path>) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        match tokio::fs::metadata(directory.as_ref()).await {
-            Ok(metadata) if metadata.is_dir() => {}
-            Ok(_) => panic!("Path must be a directory"),
-            Err(_) => tokio::fs::create_dir(directory.as_ref()).await?,
-        }
-
         let file = directory.as_ref().join(Path::new("log"));
         match tokio::fs::metadata(file.as_path()).await {
             Ok(_) => {
@@ -402,6 +396,7 @@ mod tests {
                 .map(char::from)
                 .take(10)
                 .for_each(|c| directory.push(c));
+            std::fs::create_dir_all(&directory).expect("Unable to create directory");
             EphemeralDirectory(directory)
         }
     }
