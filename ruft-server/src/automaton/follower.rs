@@ -19,7 +19,7 @@ pub(super) struct Follower<'a, L: Log, C: Cluster, R: Relay> {
     relay: &'a mut R,
 
     votee: Option<Id>,
-    leader_id: Option<Id>,
+    leader: Option<Id>,
 
     election_timeout: Duration,
 }
@@ -31,7 +31,8 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
-        leader_id: Option<Id>,
+        votee: Option<Id>,
+        leader: Option<Id>,
         election_timeout: Duration,
     ) -> Self {
         Follower {
@@ -40,8 +41,8 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
             log,
             cluster,
             relay,
-            votee: None,
-            leader_id,
+            votee,
+            leader,
             election_timeout,
         }
     }
@@ -53,11 +54,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         loop {
             tokio::select! {
                 _ = &mut sleep => {
-                    break State::candidate(self.term)
+                    break State::candidate(self.term + 1)
                 },
                 message = self.cluster.messages() => match message {
-                    Some(message) => if self.on_message(message).await {
-                        sleep.as_mut().reset(tokio::time::Instant::now() + self.election_timeout);
+                    Some(message) => match self.on_message(message).await {
+                        (_, Some(state)) => break state,
+                        (true, None) => sleep.as_mut().reset(tokio::time::Instant::now() + self.election_timeout),
+                        _ => {}
                     },
                     None => break TERMINATED
                 },
@@ -69,114 +72,106 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         }
     }
 
-    async fn on_message(&mut self, message: Message) -> bool {
+    async fn on_message(&mut self, message: Message) -> (bool, Option<State>) {
         #[rustfmt::skip]
         match message {
             AppendRequest { leader_id, term, preceding, entries_term, entries, committed } => {
-                self.on_append_request(leader_id, term, preceding,  entries_term, entries, committed).await;
-                true
+                self.on_append_request(leader_id, term, preceding,  entries_term, entries, committed).await
             },
             AppendResponse {member_id: _, term, success: _, position: _} => {
-                self.on_append_response(term);
-                false
+                (false, self.on_append_response(term))
             },
             VoteRequest { candidate_id, term, position } => {
-                self.on_vote_request(candidate_id, term, position).await;
-                false
+                (false, self.on_vote_request(candidate_id, term, position).await)
             },
             VoteResponse {member_id: _, term, vote_granted: _} => {
-                self.on_vote_response(term);
-                false
+                (false, self.on_vote_response(term))
             },
         }
     }
 
     async fn on_append_request(
         &mut self,
-        leader_id: Id,
+        leader: Id,
         term: u64,
         preceding: Position,
         entries_term: u64,
         entries: Vec<Payload>,
         _committed: Position,
-    ) {
+    ) -> (bool, Option<State>) {
         if self.term > term {
-            return self
-                .cluster
-                .send(
-                    &leader_id,
-                    Message::append_response(self.id, self.term, false, preceding),
-                )
+            self.cluster
+                .send(&leader, Message::append_response(self.id, self.term, false, preceding))
                 .await;
-        }
-
-        self.term = term;
-        self.leader_id.replace(leader_id);
-        match self.log.insert(&preceding, entries_term, entries).await {
-            Ok(position) => {
-                info!("Accepted: {:?}, committed: {:?}", position, _committed);
-                self.cluster
-                    .send(&leader_id, Message::append_response(self.id, self.term, true, position))
-                    .await
+            (false, None)
+        } else if self.term == term {
+            match self.log.insert(&preceding, entries_term, entries).await {
+                Ok(position) => {
+                    info!("Accepted: {:?}, committed: {:?}", position, _committed);
+                    self.cluster
+                        .send(&leader, Message::append_response(self.id, self.term, true, position))
+                        .await
+                }
+                Err(position) => {
+                    info!("Missing: {:?}", position);
+                    self.cluster
+                        .send(&leader, Message::append_response(self.id, self.term, false, position))
+                        .await
+                }
             }
-            Err(position) => {
-                info!("Missing: {:?}", position);
-                self.cluster
-                    .send(
-                        &leader_id,
-                        Message::append_response(self.id, self.term, false, position),
-                    )
-                    .await
-            }
+            (true, None)
+        } else {
+            (false, Some(State::follower(term, None, Some(leader))))
         }
     }
 
-    fn on_append_response(&mut self, term: u64) {
-        if term > self.term {
-            self.term = term;
-            self.votee = None;
-            self.leader_id = None;
+    fn on_append_response(&mut self, term: u64) -> Option<State> {
+        if self.term >= term {
+            None
+        } else {
+            Some(State::follower(term, None, None))
         }
     }
 
-    async fn on_vote_request(&mut self, candidate_id: Id, term: u64, position: Position) {
+    async fn on_vote_request(&mut self, candidate_id: Id, term: u64, position: Position) -> Option<State> {
         if self.term > term {
-            return self
-                .cluster
+            self.cluster
                 .send(&candidate_id, Message::vote_response(self.id, self.term, false))
                 .await;
-        }
-
-        if term > self.term {
-            if position >= *self.log.head() {
-                self.term = term;
-                self.votee.replace(candidate_id);
-                self.leader_id = None;
-
+            None
+        } else if self.term == term {
+            if self.votee.is_none() {
                 self.cluster
                     .send(&candidate_id, Message::vote_response(self.id, self.term, true))
-                    .await
+                    .await;
+                Some(State::follower(term, Some(candidate_id), None))
+            } else {
+                None
             }
-        } else if self.votee.is_none() {
-            self.votee.replace(candidate_id);
-            self.cluster
-                .send(&candidate_id, Message::vote_response(self.id, self.term, true))
-                .await
+        } else {
+            if position >= *self.log.head() {
+                self.cluster
+                    .send(&candidate_id, Message::vote_response(self.id, self.term, true))
+                    .await;
+                Some(State::follower(term, Some(candidate_id), None))
+            } else {
+                Some(State::follower(term, None, None))
+            }
         }
     }
 
-    fn on_vote_response(&mut self, term: u64) {
-        if term > self.term {
-            self.term = term;
-            self.votee = None;
-            self.leader_id = None;
+    fn on_vote_response(&mut self, term: u64) -> Option<State> {
+        if self.term >= term {
+            None
+        } else {
+            Some(State::follower(term, None, None))
         }
     }
 
     fn on_client_request(&mut self, _: Request, responder: Responder) {
         let leader_address = self
-            .leader_id
-            .map(|ref leader_id| *self.cluster.endpoint(leader_id).client_address());
+            .leader
+            .map(|ref leader| *self.cluster.endpoint(leader).client_address());
         responder.respond_with_redirect(leader_address, None);
     }
 }

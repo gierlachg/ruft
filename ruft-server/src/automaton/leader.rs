@@ -47,8 +47,9 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     }
 
     pub(super) async fn run(mut self) -> State {
+        // TODO:
         self.registry.init(
-            self.cluster.member_ids(),
+            self.cluster.members(),
             self.log.extend(self.term, vec![noop_message()]).await,
         );
         self.on_tick().await;
@@ -98,98 +99,85 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         }
     }
 
-    async fn on_append_request(&mut self, leader_id: Id, term: u64, preceding: Position) -> Option<State> {
+    async fn on_append_request(&mut self, leader: Id, term: u64, preceding: Position) -> Option<State> {
         if self.term > term {
             self.cluster
-                .send(
-                    &leader_id,
-                    Message::append_response(self.id, self.term, false, preceding),
-                )
+                .send(&leader, Message::append_response(self.id, self.term, false, preceding))
                 .await;
-            return None;
+            None
+        } else if self.term == term {
+            panic!("Double leader detected - term: {}, leader id: {:?}", term, leader);
+        } else {
+            self.redirect_client_requests(Some(&leader)).await;
+            Some(State::follower(term, None, Some(leader)))
         }
-
-        assert!(
-            term > self.term,
-            "Double leader detected - term: {}, leader id: {}",
-            term,
-            leader_id
-        );
-        self.redirect_client_requests(Some(&leader_id)).await;
-        Some(State::follower(term, Some(leader_id)))
     }
 
-    async fn on_append_response(
-        &mut self,
-        member_id: Id,
-        term: u64,
-        success: bool,
-        position: Position,
-    ) -> Option<State> {
-        if term > self.term {
-            self.redirect_client_requests(None).await;
-            Some(State::follower(position.term(), None))
-        } else if success {
-            match self.log.next(&position).await {
-                Some((preceding_position, position, entry)) => {
-                    let updated = self.registry.on_success(&member_id, preceding_position, &position);
-                    if updated {
-                        let message = Message::append_request(
-                            self.id,
-                            self.term,
-                            *preceding_position,
-                            position.term(),
-                            vec![entry.clone()],
-                            *self.registry.committed(),
-                        );
-                        self.cluster.send(&member_id, message).await;
+    async fn on_append_response(&mut self, member: Id, term: u64, success: bool, position: Position) -> Option<State> {
+        if self.term >= term {
+            if success {
+                match self.log.next(&position).await {
+                    Some((preceding_position, position, entry)) => {
+                        let updated = self.registry.on_success(&member, preceding_position, &position);
+                        if updated {
+                            let message = Message::append_request(
+                                self.id,
+                                self.term,
+                                *preceding_position,
+                                position.term(),
+                                vec![entry.clone()],
+                                *self.registry.committed(),
+                            );
+                            self.cluster.send(&member, message).await;
+                        }
+                    }
+                    None => {
+                        self.registry.on_success(&member, &position, &position.next());
                     }
                 }
-                None => {
-                    self.registry.on_success(&member_id, &position, &position.next());
+                None
+            } else {
+                let (preceding_position, position, entry) = self.log.at(&position).await.expect("Missing entry");
+                let updated = self.registry.on_failure(&member, position);
+                if updated {
+                    let message = Message::append_request(
+                        self.id,
+                        self.term,
+                        preceding_position,
+                        position.term(),
+                        vec![entry.clone()],
+                        *self.registry.committed(),
+                    );
+                    self.cluster.send(&member, message).await;
                 }
+                None
             }
-            None
         } else {
-            let (preceding_position, position, entry) = self.log.at(&position).await.expect("Missing entry");
-            let updated = self.registry.on_failure(&member_id, position);
-            if updated {
-                let message = Message::append_request(
-                    self.id,
-                    self.term,
-                    preceding_position,
-                    position.term(),
-                    vec![entry.clone()],
-                    *self.registry.committed(),
-                );
-                self.cluster.send(&member_id, message).await;
-            }
-            None
+            self.redirect_client_requests(None).await;
+            Some(State::follower(term, None, None))
         }
     }
 
-    async fn on_vote_request(&mut self, candidate_id: Id, term: u64) -> Option<State> {
+    async fn on_vote_request(&mut self, candidate: Id, term: u64) -> Option<State> {
         if self.term > term {
             self.cluster
-                .send(&candidate_id, Message::vote_response(self.id, self.term, false))
+                .send(&candidate, Message::vote_response(self.id, self.term, false))
                 .await;
-            return None;
-        }
-
-        if term > self.term {
-            self.redirect_client_requests(None).await;
-            Some(State::follower(term, None))
-        } else {
             None
+        } else if self.term == term {
+            None
+        } else {
+            self.redirect_client_requests(None).await;
+            Some(State::follower(term, None, None))
         }
     }
 
     async fn on_vote_response(&mut self, term: u64) -> Option<State> {
-        if term > self.term {
-            self.redirect_client_requests(None).await;
-            Some(State::follower(term, None))
-        } else {
+        if self.term >= term {
             None
+        } else {
+            self.redirect_client_requests(None).await;
+            Some(State::follower(term, None, None))
         }
     }
 
@@ -211,12 +199,12 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
 
     async fn replicate(&self, items: impl Iterator<Item = (&Id, &Position)>) {
         let futures = items
-            .map(|(member_id, position)| self.replicate_single(member_id, &position))
+            .map(|(member, position)| self.replicate_single(member, &position))
             .collect::<Vec<_>>();
         join_all(futures).await;
     }
 
-    async fn replicate_single(&self, member_id: &Id, position: &Position) {
+    async fn replicate_single(&self, member: &Id, position: &Position) {
         let message = match self.log.at(&position).await {
             Some((preceding_position, position, entry)) => Message::append_request(
                 self.id,
@@ -235,11 +223,11 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                 *self.registry.committed(),
             ),
         };
-        self.cluster.send(&member_id, message).await;
+        self.cluster.send(&member, message).await;
     }
 
-    async fn redirect_client_requests(&mut self, leader_id: Option<&Id>) {
-        let leader_address = leader_id.map(|leader_id| *self.cluster.endpoint(leader_id).client_address());
+    async fn redirect_client_requests(&mut self, leader: Option<&Id>) {
+        let leader_address = leader.map(|leader| *self.cluster.endpoint(leader).client_address());
         self.registry
             .responders()
             .for_each(|(position, responder)| responder.respond_with_redirect(leader_address, Some(position)))
@@ -261,8 +249,8 @@ impl Registry {
         }
     }
 
-    fn init(&mut self, member_ids: Vec<Id>, position: Position) {
-        member_ids.into_iter().for_each(|id| {
+    fn init(&mut self, members: Vec<Id>, position: Position) {
+        members.into_iter().for_each(|id| {
             self.records.insert(id, Record::new(position));
         });
     }
@@ -276,17 +264,17 @@ impl Registry {
         }
     }
 
-    fn on_failure(&mut self, member_id: &Id, missing: &Position) -> bool {
+    fn on_failure(&mut self, member: &Id, missing: &Position) -> bool {
         self.records
-            .get_mut(member_id)
+            .get_mut(member)
             .expect("Missing member entry")
             .on_failure(missing)
     }
 
-    fn on_success(&mut self, member_id: &Id, replicated: &Position, next: &Position) -> bool {
+    fn on_success(&mut self, member: &Id, replicated: &Position, next: &Position) -> bool {
         let updated = self
             .records
-            .get_mut(member_id)
+            .get_mut(member)
             .expect("Missing member entry")
             .on_success(replicated, next);
         if updated {

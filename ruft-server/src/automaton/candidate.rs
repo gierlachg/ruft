@@ -42,7 +42,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
     }
 
     pub(super) async fn run(mut self) -> State {
-        self.on_election_timeout().await;
+        // TODO:
+        self.cluster
+            .broadcast(Message::vote_request(self.id, self.term, *self.log.head()))
+            .await;
+        if let Some(state) = self.on_vote_response(self.term, true) {
+            return state;
+        }
 
         let mut election_timer = tokio::time::interval_at(
             tokio::time::Instant::now() + self.election_timeout,
@@ -51,7 +57,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         loop {
             tokio::select! {
                 _ = election_timer.tick() => {
-                    self.on_election_timeout().await
+                    break State::candidate(self.term + 1)
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => if let Some(state) = self.on_message(message).await {
@@ -65,14 +71,6 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
                 }
             }
         }
-    }
-
-    async fn on_election_timeout(&mut self) {
-        self.term += 1;
-        self.granted_votes = 1;
-        self.cluster
-            .broadcast(Message::vote_request(self.id, self.term, *self.log.head()))
-            .await
     }
 
     async fn on_message(&mut self, message: Message) -> Option<State> {
@@ -93,25 +91,22 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         }
     }
 
-    async fn on_append_request(&mut self, leader_id: Id, term: u64, preceding: Position) -> Option<State> {
+    async fn on_append_request(&mut self, leader: Id, term: u64, preceding: Position) -> Option<State> {
         if self.term > term {
             self.cluster
-                .send(
-                    &leader_id,
-                    Message::append_response(self.id, self.term, false, preceding),
-                )
+                .send(&leader, Message::append_response(self.id, self.term, false, preceding))
                 .await;
-            return None;
+            None
+        } else {
+            Some(State::follower(term, None, Some(leader)))
         }
-
-        Some(State::follower(term, Some(leader_id)))
     }
 
     fn on_append_response(&mut self, term: u64) -> Option<State> {
-        if term > self.term {
-            Some(State::follower(term, None))
-        } else {
+        if self.term >= term {
             None
+        } else {
+            Some(State::follower(term, None, None))
         }
     }
 
@@ -120,29 +115,29 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
             self.cluster
                 .send(&candidate_id, Message::vote_response(self.id, self.term, false))
                 .await;
-            return None;
-        }
-
-        if term > self.term {
-            Some(State::follower(term, None))
-        } else {
             None
+        } else if self.term == term {
+            None
+        } else {
+            Some(State::follower(term, None, None))
         }
     }
 
     fn on_vote_response(&mut self, term: u64, vote_granted: bool) -> Option<State> {
-        if term > self.term {
-            Some(State::follower(term, None))
-        } else if vote_granted {
-            self.granted_votes += 1;
-            if self.granted_votes > self.cluster.size() / 2 {
-                // TODO: cluster size: dedup with replication
-                Some(State::leader(self.term))
+        if self.term >= term {
+            if vote_granted {
+                self.granted_votes += 1;
+                if self.granted_votes > self.cluster.size() / 2 {
+                    // TODO: cluster size: dedup with replication
+                    Some(State::leader(self.term))
+                } else {
+                    None
+                }
             } else {
                 None
             }
         } else {
-            None
+            Some(State::follower(term, None, None))
         }
     }
 
