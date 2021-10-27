@@ -76,16 +76,16 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
     async fn on_message(&mut self, message: Message) -> Option<State> {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, term, preceding, entries_term: _, entries: _, committed: _ } => {
-                self.on_append_request(leader_id, term, preceding).await
+            AppendRequest { leader, term, preceding, entries_term: _, entries: _, committed: _ } => {
+                self.on_append_request(leader, term, preceding).await
             },
-            AppendResponse {member_id: _, term, success: _, position: _} => {
+            AppendResponse { member: _, term, success: _, position: _} => {
                 self.on_append_response(term)
             },
-            VoteRequest { candidate_id, term, position: _ } => {
-                self.on_vote_request(candidate_id, term).await
+            VoteRequest { candidate, term, position: _ } => {
+                self.on_vote_request(candidate, term).await
             },
-            VoteResponse { member_id: _, term, vote_granted } => {
+            VoteResponse { member: _, term, vote_granted } => {
                 self.on_vote_response(term, vote_granted)
             },
         }
@@ -110,10 +110,10 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         }
     }
 
-    async fn on_vote_request(&mut self, candidate_id: Id, term: u64) -> Option<State> {
+    async fn on_vote_request(&mut self, candidate: Id, term: u64) -> Option<State> {
         if self.term > term {
             self.cluster
-                .send(&candidate_id, Message::vote_response(self.id, self.term, false))
+                .send(&candidate, Message::vote_response(self.id, self.term, false))
                 .await;
             None
         } else if self.term == term {

@@ -75,16 +75,16 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
     async fn on_message(&mut self, message: Message) -> (bool, Option<State>) {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, term, preceding, entries_term, entries, committed } => {
-                self.on_append_request(leader_id, term, preceding,  entries_term, entries, committed).await
+            AppendRequest { leader, term, preceding, entries_term, entries, committed } => {
+                self.on_append_request(leader, term, preceding,  entries_term, entries, committed).await
             },
-            AppendResponse {member_id: _, term, success: _, position: _} => {
+            AppendResponse { member: _, term, success: _, position: _} => {
                 (false, self.on_append_response(term))
             },
-            VoteRequest { candidate_id, term, position } => {
-                (false, self.on_vote_request(candidate_id, term, position).await)
+            VoteRequest { candidate, term, position } => {
+                (false, self.on_vote_request(candidate, term, position).await)
             },
-            VoteResponse {member_id: _, term, vote_granted: _} => {
+            VoteResponse { member: _, term, vote_granted: _} => {
                 (false, self.on_vote_response(term))
             },
         }
@@ -133,27 +133,27 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         }
     }
 
-    async fn on_vote_request(&mut self, candidate_id: Id, term: u64, position: Position) -> Option<State> {
+    async fn on_vote_request(&mut self, candidate: Id, term: u64, position: Position) -> Option<State> {
         if self.term > term {
             self.cluster
-                .send(&candidate_id, Message::vote_response(self.id, self.term, false))
+                .send(&candidate, Message::vote_response(self.id, self.term, false))
                 .await;
             None
         } else if self.term == term {
             if self.votee.is_none() {
                 self.cluster
-                    .send(&candidate_id, Message::vote_response(self.id, self.term, true))
+                    .send(&candidate, Message::vote_response(self.id, self.term, true))
                     .await;
-                Some(State::follower(term, Some(candidate_id), None))
+                Some(State::follower(term, Some(candidate), None))
             } else {
                 None
             }
         } else {
             if position >= *self.log.head() {
                 self.cluster
-                    .send(&candidate_id, Message::vote_response(self.id, self.term, true))
+                    .send(&candidate, Message::vote_response(self.id, self.term, true))
                     .await;
-                Some(State::follower(term, Some(candidate_id), None))
+                Some(State::follower(term, Some(candidate), None))
             } else {
                 Some(State::follower(term, None, None))
             }

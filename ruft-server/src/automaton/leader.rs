@@ -84,16 +84,16 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     async fn on_message(&mut self, message: Message) -> Option<State> {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader_id, term, preceding, entries_term: _, entries: _, committed: _ } => {
-                self.on_append_request(leader_id, term, preceding).await
+            AppendRequest { leader, term, preceding, entries_term: _, entries: _, committed: _ } => {
+                self.on_append_request(leader, term, preceding).await
             },
-            AppendResponse { member_id, term, success, position } => {
-                self.on_append_response(member_id, term, success, position).await
+            AppendResponse { member, term, success, position } => {
+                self.on_append_response(member, term, success, position).await
             },
-            VoteRequest { candidate_id, term, position: _ } => {
-                self.on_vote_request(candidate_id, term).await
+            VoteRequest { candidate, term, position: _ } => {
+                self.on_vote_request(candidate, term).await
             },
-            VoteResponse {member_id: _, term, vote_granted: _} => {
+            VoteResponse { member: _, term, vote_granted: _} => {
                 self.on_vote_response(term).await
             },
         }

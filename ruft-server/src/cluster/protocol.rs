@@ -16,15 +16,15 @@ const VOTE_RESPONSE_MESSAGE_ID: u16 = 4;
 #[repr(u16)]
 pub(crate) enum Message {
     #[display(
-        fmt = "AppendRequest {{ leader_id: {}, preceding: {:?}, term: {}, entries_term: {}, committed: {:?} }}",
-        leader_id,
+        fmt = "AppendRequest {{ leader: {}, preceding: {:?}, term: {}, entries_term: {}, committed: {:?} }}",
+        leader,
         preceding,
         term,
         entries_term,
         committed
     )]
     AppendRequest {
-        leader_id: Id,
+        leader: Id,
         term: u64,
         preceding: Position,
         entries_term: u64,
@@ -33,47 +33,43 @@ pub(crate) enum Message {
     } = APPEND_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
-        fmt = "AppendResponse {{ member_id: {}, term: {}, success: {},position: {:?} }}",
-        member_id,
+        fmt = "AppendResponse {{ member: {}, term: {}, success: {},position: {:?} }}",
+        member,
         term,
         success,
         position
     )]
     AppendResponse {
-        member_id: Id,
+        member: Id,
         term: u64,
         success: bool,
         position: Position,
     } = APPEND_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
-        fmt = "VoteRequest {{ candidate_id: {}, term: {}, position: {:?} }}",
-        candidate_id,
+        fmt = "VoteRequest {{ candidate: {}, term: {}, position: {:?} }}",
+        candidate,
         term,
         position
     )]
     VoteRequest {
-        candidate_id: Id,
+        candidate: Id,
         term: u64,
         position: Position,
     } = VOTE_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
-        fmt = "VoteResponse {{ member_id: {}, term: {}, vote_granted: {} }}",
-        member_id,
+        fmt = "VoteResponse {{ member: {}, term: {}, vote_granted: {} }}",
+        member,
         term,
         vote_granted
     )]
-    VoteResponse {
-        member_id: Id,
-        term: u64,
-        vote_granted: bool,
-    } = VOTE_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
+    VoteResponse { member: Id, term: u64, vote_granted: bool } = VOTE_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Message {
     pub(crate) fn append_request(
-        leader_id: Id,
+        leader: Id,
         term: u64,
         preceding: Position,
         entries_term: u64,
@@ -81,7 +77,7 @@ impl Message {
         committed: Position,
     ) -> Self {
         AppendRequest {
-            leader_id,
+            leader,
             term,
             preceding,
             entries_term,
@@ -90,26 +86,26 @@ impl Message {
         }
     }
 
-    pub(crate) fn append_response(member_id: Id, term: u64, success: bool, position: Position) -> Self {
+    pub(crate) fn append_response(member: Id, term: u64, success: bool, position: Position) -> Self {
         AppendResponse {
-            member_id,
+            member,
             term,
             success,
             position,
         }
     }
 
-    pub(crate) fn vote_request(candidate_id: Id, term: u64, position: Position) -> Self {
+    pub(crate) fn vote_request(candidate: Id, term: u64, position: Position) -> Self {
         VoteRequest {
-            candidate_id,
+            candidate,
             term,
             position,
         }
     }
 
-    pub(crate) fn vote_response(member_id: Id, term: u64, vote_granted: bool) -> Self {
+    pub(crate) fn vote_response(member: Id, term: u64, vote_granted: bool) -> Self {
         VoteResponse {
-            member_id,
+            member,
             term,
             vote_granted,
         }
