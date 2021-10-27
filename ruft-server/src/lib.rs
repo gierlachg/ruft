@@ -17,7 +17,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::cluster::PhysicalCluster;
 use crate::relay::PhysicalRelay;
-use crate::storage::durable::DurableStorage;
+use crate::storage::file::FileLog;
 
 mod automaton;
 mod cluster;
@@ -47,8 +47,8 @@ pub async fn run(
         Err(_) => tokio::fs::create_dir(&directory).await.unwrap(),
     }
 
-    let storage = DurableStorage::init(&directory).await?;
-    info!("Using {} storage", &storage);
+    let log = FileLog::init(&directory).await?;
+    info!("Using {} log", &log);
 
     let cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints, shutdown.clone()).await?;
     info!("{}", &cluster);
@@ -60,7 +60,7 @@ pub async fn run(
         local_endpoint.id(),
         heartbeat_interval,
         election_timeout,
-        storage,
+        log,
         cluster,
         relay,
     )

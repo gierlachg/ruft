@@ -8,13 +8,13 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
 use crate::relay::Relay;
-use crate::storage::Storage;
+use crate::storage::Log;
 use crate::{Id, Payload, Position};
 
-pub(super) struct Follower<'a, S: Storage, C: Cluster, R: Relay> {
+pub(super) struct Follower<'a, L: Log, C: Cluster, R: Relay> {
     id: Id,
     term: u64,
-    storage: &'a mut S,
+    log: &'a mut L,
     cluster: &'a mut C,
     relay: &'a mut R,
 
@@ -24,11 +24,11 @@ pub(super) struct Follower<'a, S: Storage, C: Cluster, R: Relay> {
     election_timeout: Duration,
 }
 
-impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
+impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
     pub(super) fn init(
         id: Id,
         term: u64,
-        storage: &'a mut S,
+        log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
         leader_id: Option<Id>,
@@ -37,7 +37,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         Follower {
             id,
             term,
-            storage,
+            log,
             cluster,
             relay,
             votee: None,
@@ -112,7 +112,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
 
         self.term = term;
         self.leader_id.replace(leader_id);
-        match self.storage.insert(&preceding, entries_term, entries).await {
+        match self.log.insert(&preceding, entries_term, entries).await {
             Ok(position) => {
                 info!("Accepted: {:?}, committed: {:?}", position, _committed);
                 self.cluster
@@ -148,7 +148,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Follower<'a, S, C, R> {
         }
 
         if term > self.term {
-            if position >= *self.storage.head() {
+            if position >= *self.log.head() {
                 self.term = term;
                 self.votee.replace(candidate_id);
                 self.leader_id = None;

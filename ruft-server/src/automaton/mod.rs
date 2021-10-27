@@ -12,18 +12,18 @@ use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER, TERMINATED};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Response;
 use crate::relay::Relay;
-use crate::storage::Storage;
+use crate::storage::Log;
 use crate::{Id, Position};
 
 mod candidate;
 mod follower;
 mod leader;
 
-pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
+pub(super) async fn run<L: Log, C: Cluster, R: Relay>(
     id: Id,
     heartbeat_interval: Duration,
     election_timeout: Duration,
-    mut storage: S,
+    mut log: L,
     mut cluster: C,
     mut relay: R,
 ) {
@@ -44,7 +44,7 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
                 Follower::init(
                     id,
                     term,
-                    &mut storage,
+                    &mut log,
                     &mut cluster,
                     &mut relay,
                     leader_id,
@@ -55,12 +55,12 @@ pub(super) async fn run<S: Storage, C: Cluster, R: Relay>(
             }
             CANDIDATE { term } => {
                 let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
-                Candidate::init(id, term, &mut storage, &mut cluster, &mut relay, election_timeout)
+                Candidate::init(id, term, &mut log, &mut cluster, &mut relay, election_timeout)
                     .run()
                     .await
             }
             LEADER { term } => {
-                Leader::init(id, term, &mut storage, &mut cluster, &mut relay, heartbeat_interval)
+                Leader::init(id, term, &mut log, &mut cluster, &mut relay, heartbeat_interval)
                     .run()
                     .await
             }

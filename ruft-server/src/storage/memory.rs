@@ -3,24 +3,24 @@ use std::fmt::{self, Display, Formatter};
 
 use async_trait::async_trait;
 
-use crate::storage::{noop_message, Storage};
+use crate::storage::{noop_message, Log};
 use crate::{Payload, Position};
 
-pub(crate) struct VolatileStorage {
+pub(crate) struct MemoryLog {
     entries: BTreeMap<Position, Payload>,
 }
 
-impl VolatileStorage {
+impl MemoryLog {
     pub(crate) fn _init() -> Self {
         let mut entries = BTreeMap::new();
         entries.insert(Position::initial(), noop_message());
 
-        VolatileStorage { entries }
+        MemoryLog { entries }
     }
 }
 
 #[async_trait]
-impl Storage for VolatileStorage {
+impl Log for MemoryLog {
     fn head(&self) -> &Position {
         match self.entries.iter().next_back() {
             Some((position, _)) => position,
@@ -84,7 +84,7 @@ impl Storage for VolatileStorage {
     }
 }
 
-impl Display for VolatileStorage {
+impl Display for MemoryLog {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         write!(formatter, "VOLATILE")
     }
@@ -96,7 +96,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_created_then_initialized() {
-        let storage = VolatileStorage::_init();
+        let storage = MemoryLog::_init();
 
         assert_eq!(storage.head(), &Position::of(0, 0));
 
@@ -109,7 +109,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_empty_entries_appended_then_succeeds() {
-        let mut storage = VolatileStorage::_init();
+        let mut storage = MemoryLog::_init();
 
         assert_eq!(storage.extend(1, vec![]).await, Position::of(0, 0));
 
@@ -120,7 +120,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entries_appended_then_succeeds() {
-        let mut storage = VolatileStorage::_init();
+        let mut storage = MemoryLog::_init();
 
         assert_eq!(storage.extend(1, entries(1)).await, Position::of(1, 0));
         assert_eq!(storage.extend(1, entries(2)).await, Position::of(1, 1));
@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_and_preceding_present_then_succeeds() {
-        let mut storage = VolatileStorage::_init();
+        let mut storage = MemoryLog::_init();
 
         assert_eq!(
             storage.insert(&Position::of(0, 0), 1, entries(1)).await,
@@ -209,7 +209,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_but_preceding_term_missing_then_fails() {
-        let mut storage = VolatileStorage::_init();
+        let mut storage = MemoryLog::_init();
 
         assert_eq!(
             storage.insert(&Position::of(5, 0), 10, entries(1)).await,
@@ -224,7 +224,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_but_preceding_index_missing_then_fails() {
-        let mut storage = VolatileStorage::_init();
+        let mut storage = MemoryLog::_init();
 
         storage.extend(5, entries(1)).await;
         assert_eq!(
@@ -240,7 +240,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_in_the_middle_then_subsequent_entries_are_removed() {
-        let mut storage = VolatileStorage::_init();
+        let mut storage = MemoryLog::_init();
 
         storage
             .extend(5, vec![Payload::from_static(&[1]), Payload::from_static(&[2])])
@@ -268,7 +268,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_next() {
-        let mut storage = VolatileStorage::_init();
+        let mut storage = MemoryLog::_init();
 
         assert_eq!(storage.extend(10, entries(100)).await, Position::of(10, 0));
 

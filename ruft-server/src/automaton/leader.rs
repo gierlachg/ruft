@@ -9,15 +9,15 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::{self, StoreRequest};
 use crate::relay::Relay;
-use crate::storage::{noop_message, Storage};
+use crate::storage::{noop_message, Log};
 use crate::{Id, Position};
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
-pub(super) struct Leader<'a, S: Storage, C: Cluster, R: Relay> {
+pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
     id: Id,
     term: u64,
-    storage: &'a mut S,
+    log: &'a mut L,
     cluster: &'a mut C,
     relay: &'a mut R,
 
@@ -26,11 +26,11 @@ pub(super) struct Leader<'a, S: Storage, C: Cluster, R: Relay> {
     heartbeat_interval: Duration,
 }
 
-impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
+impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     pub(super) fn init(
         id: Id,
         term: u64,
-        storage: &'a mut S,
+        log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
         heartbeat_interval: Duration,
@@ -38,7 +38,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
         Leader {
             id,
             term,
-            storage,
+            log,
             cluster,
             relay,
             registry: Registry::new(),
@@ -49,7 +49,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     pub(super) async fn run(mut self) -> State {
         self.registry.init(
             self.cluster.member_ids(),
-            self.storage.extend(self.term, vec![noop_message()]).await,
+            self.log.extend(self.term, vec![noop_message()]).await,
         );
         self.on_tick().await;
 
@@ -130,7 +130,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             self.redirect_client_requests(None).await;
             Some(State::follower(position.term(), None))
         } else if success {
-            match self.storage.next(&position).await {
+            match self.log.next(&position).await {
                 Some((preceding_position, position, entry)) => {
                     let updated = self.registry.on_success(&member_id, preceding_position, &position);
                     if updated {
@@ -151,7 +151,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             }
             None
         } else {
-            let (preceding_position, position, entry) = self.storage.at(&position).await.expect("Missing entry");
+            let (preceding_position, position, entry) = self.log.at(&position).await.expect("Missing entry");
             let updated = self.registry.on_failure(&member_id, position);
             if updated {
                 let message = Message::append_request(
@@ -196,12 +196,12 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     async fn on_client_request(&mut self, request: Request, responder: Responder) {
         match request {
             StoreRequest { payload, position } => match position {
-                Some(position) if self.storage.at(&position).await.is_some() => {
+                Some(position) if self.log.at(&position).await.is_some() => {
                     assert!(position.term() < self.term);
                     responder.respond_with_success();
                 }
                 _ => {
-                    let position = self.storage.extend(self.term, vec![payload]).await;
+                    let position = self.log.extend(self.term, vec![payload]).await;
                     self.registry.on_client_request(position, responder);
                     self.replicate(self.registry.nexts_with(position)).await;
                 }
@@ -217,7 +217,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
     }
 
     async fn replicate_single(&self, member_id: &Id, position: &Position) {
-        let message = match self.storage.at(&position).await {
+        let message = match self.log.at(&position).await {
             Some((preceding_position, position, entry)) => Message::append_request(
                 self.id,
                 self.term,
@@ -229,7 +229,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Leader<'a, S, C, R> {
             None => Message::append_request(
                 self.id,
                 self.term,
-                *self.storage.head(),
+                *self.log.head(),
                 self.term,
                 vec![],
                 *self.registry.committed(),

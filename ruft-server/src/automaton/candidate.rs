@@ -6,13 +6,13 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
 use crate::relay::Relay;
-use crate::storage::Storage;
+use crate::storage::Log;
 use crate::{Id, Position};
 
-pub(super) struct Candidate<'a, S: Storage, C: Cluster, R: Relay> {
+pub(super) struct Candidate<'a, L: Log, C: Cluster, R: Relay> {
     id: Id,
     term: u64,
-    storage: &'a mut S,
+    log: &'a mut L,
     cluster: &'a mut C,
     relay: &'a mut R,
 
@@ -21,11 +21,11 @@ pub(super) struct Candidate<'a, S: Storage, C: Cluster, R: Relay> {
     election_timeout: Duration,
 }
 
-impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
+impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
     pub(super) fn init(
         id: Id,
         term: u64,
-        storage: &'a mut S,
+        log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
         election_timeout: Duration,
@@ -33,7 +33,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         Candidate {
             id,
             term,
-            storage,
+            log,
             cluster,
             relay,
             granted_votes: 0,
@@ -71,7 +71,7 @@ impl<'a, S: Storage, C: Cluster, R: Relay> Candidate<'a, S, C, R> {
         self.term += 1;
         self.granted_votes = 1;
         self.cluster
-            .broadcast(Message::vote_request(self.id, self.term, *self.storage.head()))
+            .broadcast(Message::vote_request(self.id, self.term, *self.log.head()))
             .await
     }
 

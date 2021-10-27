@@ -2,15 +2,15 @@ use async_trait::async_trait;
 
 use crate::{Payload, Position};
 
-pub(crate) mod durable;
-pub(crate) mod volatile;
+pub(crate) mod file;
+pub(crate) mod memory;
 
 pub(crate) fn noop_message() -> Payload {
     Payload::from_static(&[])
 }
 
 #[async_trait]
-pub(crate) trait Storage {
+pub(crate) trait Log {
     fn head(&self) -> &Position;
 
     async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position;
