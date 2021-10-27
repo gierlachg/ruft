@@ -29,7 +29,7 @@ const HEARTBEAT_INTERVAL_MILLIS: u64 = 20;
 const ELECTION_TIMEOUT_BASE_MILLIS: u64 = 250;
 
 pub async fn run(
-    log_path: impl AsRef<Path>,
+    data_path: impl AsRef<Path>,
     local: (SocketAddr, SocketAddr),
     remotes: Vec<(SocketAddr, SocketAddr)>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -41,8 +41,7 @@ pub async fn run(
     let (local_endpoint, remote_endpoints) = to_endpoints(local, remotes);
     let shutdown = Shutdown::watch();
 
-    //let storage = VolatileStorage::init(); // TODO:
-    let storage = DurableStorage::init(log_path).await?;
+    let storage = DurableStorage::init(data_path).await?;
     info!("Using {} storage", &storage);
 
     let cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints, shutdown.clone()).await?;

@@ -17,19 +17,25 @@ pub(crate) struct DurableStorage {
 }
 
 impl DurableStorage {
-    pub(crate) async fn init(path: impl AsRef<Path>) -> Result<Self, Box<dyn Error + Send + Sync>> {
-        match tokio::fs::metadata(path.as_ref()).await {
-            Ok(metadata) if metadata.is_file() => {
-                let mut file = SequentialFile::from(path).await?;
+    pub(crate) async fn init(directory: impl AsRef<Path>) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        match tokio::fs::metadata(directory.as_ref()).await {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => panic!("Path must be a directory"),
+            Err(_) => tokio::fs::create_dir(directory.as_ref()).await?,
+        }
+
+        let file = directory.as_ref().join(Path::new("log"));
+        match tokio::fs::metadata(file.as_path()).await {
+            Ok(_) => {
+                let mut file = SequentialFile::from(file).await?;
                 let (head, _) = file.seek(&Position::terminal()).await?;
                 Ok(DurableStorage {
                     file: Mutex::new(file),
                     head: head.unwrap(),
                 })
             }
-            Ok(_) => panic!("Must be file"), // TODO:
             Err(_) => {
-                let mut file = SequentialFile::from(path).await?;
+                let mut file = SequentialFile::from(file).await?;
                 let head = Position::initial();
                 file.append(&head, &noop_message()).await?;
                 file.sync().await?;
@@ -186,7 +192,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_created_then_initialized() {
-        let storage = DurableStorage::init(EphemeralFile::new()).await.unwrap();
+        let storage = DurableStorage::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(storage.head(), &Position::of(0, 0));
 
@@ -199,7 +205,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_empty_entries_appended_then_succeeds() {
-        let mut storage = DurableStorage::init(EphemeralFile::new()).await.unwrap();
+        let mut storage = DurableStorage::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(storage.extend(1, vec![]).await, Position::of(0, 0));
 
@@ -210,7 +216,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entries_appended_then_succeeds() {
-        let mut storage = DurableStorage::init(EphemeralFile::new()).await.unwrap();
+        let mut storage = DurableStorage::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(storage.extend(1, entries(1)).await, Position::of(1, 0));
         assert_eq!(storage.extend(1, entries(2)).await, Position::of(1, 1));
@@ -250,7 +256,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_and_preceding_present_then_succeeds() {
-        let mut storage = DurableStorage::init(EphemeralFile::new()).await.unwrap();
+        let mut storage = DurableStorage::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(
             storage.insert(&Position::of(0, 0), 1, entries(1)).await,
@@ -299,7 +305,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_but_preceding_term_missing_then_fails() {
-        let mut storage = DurableStorage::init(EphemeralFile::new()).await.unwrap();
+        let mut storage = DurableStorage::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(
             storage.insert(&Position::of(5, 0), 10, entries(1)).await,
@@ -314,7 +320,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_but_preceding_index_missing_then_fails() {
-        let mut storage = DurableStorage::init(EphemeralFile::new()).await.unwrap();
+        let mut storage = DurableStorage::init(EphemeralDirectory::new()).await.unwrap();
 
         storage.extend(5, entries(1)).await;
         assert_eq!(
@@ -330,7 +336,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_in_the_middle_then_subsequent_entries_are_removed() {
-        let mut storage = DurableStorage::init(EphemeralFile::new()).await.unwrap();
+        let mut storage = DurableStorage::init(EphemeralDirectory::new()).await.unwrap();
 
         storage
             .extend(5, vec![Payload::from_static(&[1]), Payload::from_static(&[2])])
@@ -358,7 +364,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_next() {
-        let mut storage = DurableStorage::init(EphemeralFile::new()).await.unwrap();
+        let mut storage = DurableStorage::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(storage.extend(10, entries(100)).await, Position::of(10, 0));
 
@@ -386,30 +392,29 @@ mod tests {
         Payload::from(vec![value])
     }
 
-    struct EphemeralFile(String);
+    struct EphemeralDirectory(String);
 
-    impl<'a> EphemeralFile {
+    impl<'a> EphemeralDirectory {
         fn new() -> Self {
-            let mut file = String::from("../target/tmp/ruft-");
+            let mut directory = String::from("../target/tmp/ruft-");
             rand::thread_rng()
                 .sample_iter(&rand::distributions::Alphanumeric)
                 .map(char::from)
                 .take(10)
-                .for_each(|c| file.push(c));
-            file.push_str(".log");
-            EphemeralFile(file)
+                .for_each(|c| directory.push(c));
+            EphemeralDirectory(directory)
         }
     }
 
-    impl AsRef<Path> for EphemeralFile {
+    impl AsRef<Path> for EphemeralDirectory {
         fn as_ref(&self) -> &Path {
             self.0.as_ref()
         }
     }
 
-    impl Drop for EphemeralFile {
+    impl Drop for EphemeralDirectory {
         fn drop(&mut self) {
-            std::fs::remove_file(&self.0).expect("Unable to remove file")
+            std::fs::remove_dir_all(&self.0).expect("Unable to remove directory")
         }
     }
 }
