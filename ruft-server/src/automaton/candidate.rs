@@ -79,7 +79,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
             AppendRequest { leader, term, preceding, entries_term: _, entries: _, committed: _ } => {
                 self.on_append_request(leader, term, preceding).await
             },
-            AppendResponse { member: _, term, success: _, position: _} => {
+            AppendResponse { member: _, term, position: _} => {
                 self.on_append_response(term)
             },
             VoteRequest { candidate, term, position: _ } => {
@@ -94,7 +94,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
     async fn on_append_request(&mut self, leader: Id, term: u64, preceding: Position) -> Option<State> {
         if self.term > term {
             self.cluster
-                .send(&leader, Message::append_response(self.id, self.term, false, preceding))
+                .send(&leader, Message::append_response(self.id, self.term, Err(preceding)))
                 .await;
             None
         } else {

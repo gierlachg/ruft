@@ -78,7 +78,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
             AppendRequest { leader, term, preceding, entries_term, entries, committed } => {
                 self.on_append_request(leader, term, preceding,  entries_term, entries, committed).await
             },
-            AppendResponse { member: _, term, success: _, position: _} => {
+            AppendResponse { member: _, term, position: _} => {
                 (false, self.on_append_response(term))
             },
             VoteRequest { candidate, term, position } => {
@@ -101,7 +101,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
     ) -> (bool, Option<State>) {
         if self.term > term {
             self.cluster
-                .send(&leader, Message::append_response(self.id, self.term, false, preceding))
+                .send(&leader, Message::append_response(self.id, self.term, Err(preceding)))
                 .await;
             (false, None)
         } else if self.term == term {
@@ -109,13 +109,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
                 Ok(position) => {
                     info!("Accepted: {:?}, committed: {:?}", position, _committed);
                     self.cluster
-                        .send(&leader, Message::append_response(self.id, self.term, true, position))
+                        .send(&leader, Message::append_response(self.id, self.term, Ok(position)))
                         .await
                 }
                 Err(position) => {
                     info!("Missing: {:?}", position);
                     self.cluster
-                        .send(&leader, Message::append_response(self.id, self.term, false, position))
+                        .send(&leader, Message::append_response(self.id, self.term, Err(position)))
                         .await
                 }
             }

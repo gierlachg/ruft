@@ -33,17 +33,15 @@ pub(crate) enum Message {
     } = APPEND_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
-        fmt = "AppendResponse {{ member: {}, term: {}, success: {},position: {:?} }}",
+        fmt = "AppendResponse {{ member: {}, term: {}, position: {:?} }}",
         member,
         term,
-        success,
         position
     )]
     AppendResponse {
         member: Id,
         term: u64,
-        success: bool,
-        position: Position,
+        position: Result<Position, Position>,
     } = APPEND_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
@@ -86,13 +84,8 @@ impl Message {
         }
     }
 
-    pub(crate) fn append_response(member: Id, term: u64, success: bool, position: Position) -> Self {
-        AppendResponse {
-            member,
-            term,
-            success,
-            position,
-        }
+    pub(crate) fn append_response(member: Id, term: u64, position: Result<Position, Position>) -> Self {
+        AppendResponse { member, term, position }
     }
 
     pub(crate) fn vote_request(candidate: Id, term: u64, position: Position) -> Self {
