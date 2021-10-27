@@ -57,6 +57,7 @@ pub async fn run(
     info!("Listening for client connections on {}", &relay);
 
     automaton::run(
+        &directory,
         local_endpoint.id(),
         heartbeat_interval,
         election_timeout,
