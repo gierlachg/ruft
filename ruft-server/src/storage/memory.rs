@@ -50,7 +50,7 @@ impl Log for MemoryLog {
             .into_iter()
             .skip_while(|(position, _)| position == preceding)
             .next()
-            .map(|(position, _)| position.clone())
+            .map(|(position, _)| *position)
         {
             self.entries.split_off(&position);
         }

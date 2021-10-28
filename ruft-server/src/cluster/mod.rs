@@ -60,7 +60,7 @@ impl PhysicalCluster {
 #[async_trait]
 impl Cluster for PhysicalCluster {
     fn members(&self) -> Vec<Id> {
-        self.egresses.keys().map(|id| id.clone()).collect()
+        self.egresses.keys().map(|id| *id).collect()
     }
 
     // TODO:

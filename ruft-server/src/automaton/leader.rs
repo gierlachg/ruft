@@ -120,14 +120,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             match position {
                 Ok(position) => match self.log.next(&position).await {
                     Some((preceding_position, position, entry)) => {
-                        let updated = self.registry.on_success(&member, preceding_position, &position);
-                        if updated {
+                        if self.registry.on_success(&member, preceding_position, &position) {
                             let message = Message::append_request(
                                 self.id,
                                 self.term,
                                 *preceding_position,
                                 position.term(),
-                                vec![entry.clone()],
+                                vec![entry],
                                 *self.registry.committed(),
                             );
                             self.cluster.send(&member, message).await;
@@ -139,14 +138,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                 },
                 Err(position) => {
                     let (preceding_position, position, entry) = self.log.at(&position).await.expect("Missing entry");
-                    let updated = self.registry.on_failure(&member, position);
-                    if updated {
+                    if self.registry.on_failure(&member, position) {
                         let message = Message::append_request(
                             self.id,
                             self.term,
                             preceding_position,
                             position.term(),
-                            vec![entry.clone()],
+                            vec![entry],
                             *self.registry.committed(),
                         );
                         self.cluster.send(&member, message).await;
@@ -213,7 +211,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                 self.term,
                 preceding_position,
                 position.term(),
-                vec![entry.clone()],
+                vec![entry],
                 *self.registry.committed(),
             ),
             None => Message::append_request(
