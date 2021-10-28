@@ -3,7 +3,6 @@
 #![feature(arbitrary_enum_discriminant)]
 
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::error::Error;
 use std::hash::Hash;
 use std::net::SocketAddr;

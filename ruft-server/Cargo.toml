@@ -3,7 +3,7 @@ name = "ruft-server"
 version = "0.0.1"
 description = "Ruft Server"
 authors = ["Grzegorz Gierlach <gierlachg@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 clap = "2.33.3"

@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::net::SocketAddr;
 
 use crate::relay::protocol::Response::{self, StoreRedirectResponse, StoreSuccessResponse};

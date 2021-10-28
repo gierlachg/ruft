@@ -3,7 +3,7 @@ name = "ruft-client"
 version = "0.0.1"
 description = "Ruft Client"
 authors = ["Grzegorz Gierlach <gierlachg@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 thiserror = "1"
