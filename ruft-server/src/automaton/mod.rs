@@ -32,7 +32,11 @@ pub(super) async fn run<L: Log, C: Cluster, R: Relay>(
 ) {
     let file = directory.as_ref().join(Path::new("state"));
 
-    let mut state = init(file.as_path()).await;
+    let (term, votee) = match load(file.as_path()).await.unwrap() {
+        Some((term, votee)) => (term, votee),
+        None => (0, None),
+    };
+    let mut state = State::follower(term, votee, None);
     info!("Starting as: {:?}", state);
 
     loop {
@@ -73,18 +77,6 @@ pub(super) async fn run<L: Log, C: Cluster, R: Relay>(
         };
         info!("Switching over to: {:?}", state);
     }
-}
-
-// TODO: struct ???
-async fn init(file: impl AsRef<Path>) -> State {
-    let (term, votee) = match load(file.as_ref()).await.unwrap() {
-        Some((term, votee)) => (term, votee),
-        None => {
-            store(file.as_ref(), 0, None).await.unwrap();
-            (0, None)
-        }
-    };
-    State::follower(term, votee, None)
 }
 
 async fn load(file: impl AsRef<Path>) -> Result<Option<(u64, Option<Id>)>, std::io::Error> {
