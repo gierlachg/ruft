@@ -105,6 +105,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
                 .await;
             (false, None)
         } else if self.term == term {
+            self.leader.replace(leader);
             match self.log.insert(&preceding, entries_term, entries).await {
                 Ok(position) => {
                     info!("Accepted: {:?}, committed: {:?}", position, _committed);
