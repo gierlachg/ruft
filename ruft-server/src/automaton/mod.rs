@@ -32,10 +32,7 @@ pub(super) async fn run<L: Log, C: Cluster, R: Relay>(
 ) {
     let file = directory.as_ref().join(Path::new("state"));
 
-    let (term, votee) = match load(file.as_path()).await.unwrap() {
-        Some((term, votee)) => (term, votee),
-        None => (0, None),
-    };
+    let (term, votee) = load(file.as_path()).await.unwrap().unwrap_or((0, None));
     let mut state = State::follower(term, votee, None);
     info!("Starting as: {:?}", state);
 
