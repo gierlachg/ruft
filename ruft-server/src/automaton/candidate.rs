@@ -42,14 +42,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
     }
 
     pub(super) async fn run(mut self) -> State {
-        // TODO:
+        if self.cluster.size() == 1 {
+            return State::leader(self.term);
+        }
+
         self.cluster
             .broadcast(Message::vote_request(self.id, self.term, *self.log.head()))
             .await;
-        if let Some(state) = self.on_vote_response(self.term, true) {
-            return state;
-        }
-
         let mut election_timer = tokio::time::interval_at(
             tokio::time::Instant::now() + self.election_timeout,
             self.election_timeout,
@@ -127,7 +126,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         if self.term >= term {
             if vote_granted {
                 self.granted_votes += 1;
-                if self.granted_votes > self.cluster.size() / 2 {
+                if (self.granted_votes + 1) > self.cluster.size() / 2 {
                     // TODO: cluster size: dedup with replication
                     Some(State::leader(self.term))
                 } else {

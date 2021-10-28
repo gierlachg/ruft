@@ -52,12 +52,9 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             self.cluster.members(),
             self.log.extend(self.term, vec![noop_message()]).await,
         );
-        self.on_tick().await;
 
-        let mut ticker = tokio::time::interval_at(
-            tokio::time::Instant::now() + self.heartbeat_interval,
-            self.heartbeat_interval,
-        );
+        let mut ticker = tokio::time::interval(self.heartbeat_interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
