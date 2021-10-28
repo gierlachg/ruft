@@ -30,8 +30,7 @@ impl FileLog {
             Err(_) => {
                 let mut file = SequentialFile::from(file).await?;
                 let head = Position::initial();
-                file.append(&head, &noop_message()).await?;
-                file.sync().await?;
+                file.append(vec![(head, noop_message())].into_iter()).await?;
                 Ok(FileLog {
                     file: Mutex::new(file),
                     head,
@@ -52,13 +51,11 @@ impl Log for FileLog {
 
         let mut file = self.file.lock().await;
         file.seek(&Position::terminal()).await.unwrap();
-        let mut next;
-        for entry in entries {
-            next = self.head.next_in(term);
-            file.append(&next, &entry).await.unwrap();
-            self.head = next;
-        }
-        file.sync().await.unwrap();
+        let entries = entries.into_iter().map(|entry| {
+            self.head = self.head.next_in(term);
+            (self.head, entry)
+        });
+        file.append(entries).await.unwrap();
 
         self.head
     }
@@ -156,14 +153,22 @@ impl SequentialFile {
         Ok(Payload::from(bytes))
     }
 
-    async fn append(&mut self, position: &Position, entry: &Payload) -> Result<(), std::io::Error> {
-        self.0.write_u64_le(position.term()).await?;
-        self.0.write_u64_le(position.index()).await?;
-        self.0
-            .write_u64_le(u64::try_from(entry.0.len()).expect("Unable to convert"))
-            .await?;
-        self.0.write_all(entry.0.as_ref()).await?;
-        Ok(())
+    async fn append(&mut self, entries: impl Iterator<Item = (Position, Payload)>) -> Result<(), std::io::Error> {
+        let mut modified = false;
+        for (position, entry) in entries {
+            self.0.write_u64_le(position.term()).await?;
+            self.0.write_u64_le(position.index()).await?;
+            self.0
+                .write_u64_le(u64::try_from(entry.0.len()).expect("Unable to convert"))
+                .await?;
+            self.0.write_all(entry.0.as_ref()).await?;
+            modified = true;
+        }
+        if modified {
+            self.0.sync_all().await
+        } else {
+            Ok(())
+        }
     }
 
     async fn truncate(&mut self) -> Result<(), std::io::Error> {
@@ -171,14 +176,10 @@ impl SequentialFile {
         let size = self.0.metadata().await?.len();
         if offset < size {
             self.0.set_len(offset).await?;
-            self.sync().await
+            self.0.sync_all().await
         } else {
             Ok(())
         }
-    }
-
-    async fn sync(&mut self) -> Result<(), std::io::Error> {
-        self.0.sync_all().await
     }
 }
 
