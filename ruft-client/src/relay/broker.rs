@@ -78,6 +78,7 @@ impl Broker {
                             let Exchange(request, responder) = exchanges.dequeue();
                             requests
                                 .send((request.with_position(position), responder))
+                                // safety: client already dropped
                                 .unwrap_or(())
                         }
                     },

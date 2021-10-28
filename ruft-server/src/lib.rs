@@ -44,7 +44,7 @@ pub async fn run(
     match tokio::fs::metadata(directory.as_ref()).await {
         Ok(metadata) if metadata.is_dir() => {} // TODO: check empty or both files are there
         Ok(_) => panic!("Path must be a directory"),
-        Err(_) => tokio::fs::create_dir(&directory).await.unwrap(),
+        Err(_) => tokio::fs::create_dir(&directory).await.unwrap(), // TODO:
     }
 
     let log = FileLog::init(&directory).await?;
@@ -124,7 +124,7 @@ fn to_endpoints(local: (SocketAddr, SocketAddr), remotes: Vec<(SocketAddr, Socke
     let mut remote_endpoints = endpoints
         .into_iter()
         .enumerate()
-        .map(|(i, endpoint)| Endpoint::new(Id(u8::try_from(i).unwrap()), endpoint.0, endpoint.1))
+        .map(|(i, endpoint)| Endpoint::new(Id(u8::try_from(i).expect("Unable to convert")), endpoint.0, endpoint.1))
         .collect::<Vec<_>>();
     let local_endpoint_position = remote_endpoints
         .iter()
