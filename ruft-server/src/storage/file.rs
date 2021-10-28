@@ -168,8 +168,13 @@ impl SequentialFile {
 
     async fn truncate(&mut self) -> Result<(), std::io::Error> {
         let offset = self.0.stream_position().await?;
-        self.0.set_len(offset).await?;
-        self.sync().await
+        let size = self.0.metadata().await?.len();
+        if offset < size {
+            self.0.set_len(offset).await?;
+            self.sync().await
+        } else {
+            Ok(())
+        }
     }
 
     async fn sync(&mut self) -> Result<(), std::io::Error> {
