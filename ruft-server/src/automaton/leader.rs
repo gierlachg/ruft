@@ -7,7 +7,7 @@ use crate::automaton::Responder;
 use crate::automaton::State::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Request::{self, StoreRequest};
+use crate::relay::protocol::Request::{self, ReplicateRequest};
 use crate::relay::Relay;
 use crate::storage::{noop_message, Log};
 use crate::{Id, Position};
@@ -183,7 +183,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
 
     async fn on_client_request(&mut self, request: Request, responder: Responder) {
         match request {
-            StoreRequest { payload, position } => match position {
+            ReplicateRequest { payload, position } => match position {
                 Some(position) if self.log.at(&position).await.is_some() => {
                     assert!(position.term() < self.term);
                     responder.respond_with_success();

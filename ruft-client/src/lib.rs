@@ -7,7 +7,7 @@ use bytes::Bytes;
 use log::info;
 use thiserror::Error;
 
-use crate::relay::protocol::Request;
+use crate::relay::protocol::{Operation, Request};
 use crate::relay::Relay;
 
 mod relay;
@@ -30,8 +30,9 @@ impl RuftClient {
         Ok(RuftClient { relay })
     }
 
+    // TODO: struct with id, generic over key & value
     pub async fn store(&mut self, payload: Payload) -> Result<()> {
-        let request = Request::store_request(payload, None);
+        let request = Request::replicate(Operation::map_store(payload).into(), None);
         self.relay.send(request).await
     }
 }

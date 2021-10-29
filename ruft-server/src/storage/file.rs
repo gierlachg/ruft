@@ -24,6 +24,7 @@ impl FileLog {
                 let (head, _) = file.seek(&Position::terminal()).await?;
                 Ok(FileLog {
                     file: Mutex::new(file),
+                    // safety: log is not empty
                     head: head.unwrap(),
                 })
             }

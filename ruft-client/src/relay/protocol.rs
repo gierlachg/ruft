@@ -4,31 +4,34 @@ use bytes::Bytes;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
-use crate::relay::protocol::Request::StoreRequest;
+use crate::relay::protocol::Operation::MapStoreOperation;
+use crate::relay::protocol::Request::ReplicateRequest;
 use crate::Payload;
 
-const STORE_REQUEST_ID: u16 = 1;
-const STORE_SUCCESS_RESPONSE_ID: u16 = 2;
-const STORE_REDIRECT_RESPONSE_ID: u16 = 3;
+const REPLICATE_REQUEST_ID: u8 = 1;
+const REPLICATE_SUCCESS_RESPONSE_ID: u8 = 2;
+const REPLICATE_REDIRECT_RESPONSE_ID: u8 = 3;
+
+const MAP_STORE_OPERATION_ID: u16 = 1;
 
 #[derive(Display, Serialize)]
-#[repr(u16)]
+#[repr(u8)]
 pub(crate) enum Request {
-    #[display(fmt = "StoreRequest {{ position: {:?} }}", position)]
-    StoreRequest {
+    #[display(fmt = "ReplicateRequest {{ position: {:?} }}", position)]
+    ReplicateRequest {
         payload: Payload,
         position: Option<Position>,
-    } = STORE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    } = REPLICATE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Request {
-    pub(crate) fn store_request(payload: Payload, position: Option<Position>) -> Self {
-        StoreRequest { payload, position }
+    pub(crate) fn replicate(payload: Payload, position: Option<Position>) -> Self {
+        ReplicateRequest { payload, position }
     }
 
     pub(crate) fn with_position(self, position: Option<Position>) -> Self {
         match self {
-            StoreRequest { payload, position: _ } => StoreRequest { payload, position },
+            ReplicateRequest { payload, position: _ } => ReplicateRequest { payload, position },
         }
     }
 }
@@ -40,27 +43,49 @@ impl Into<Bytes> for &Request {
 }
 
 #[derive(Display, Deserialize)]
-#[repr(u16)]
+#[repr(u8)]
 pub(crate) enum Response {
-    #[display(fmt = "StoreSuccessResponse {{ }}")]
-    StoreSuccessResponse {} = STORE_SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(fmt = "ReplicateSuccessResponse {{ }}")]
+    ReplicateSuccessResponse {} = REPLICATE_SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
-        fmt = "StoreRedirectResponse {{ leader_address: {:?}, position: {:?} }}",
+        fmt = "ReplicateRedirectResponse {{ leader_address: {:?}, position: {:?} }}",
         leader_address,
         position
     )]
-    StoreRedirectResponse {
+    ReplicateRedirectResponse {
         leader_address: Option<SocketAddr>,
         position: Option<Position>,
-    } = STORE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
+    } = REPLICATE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl TryFrom<Bytes> for Response {
-    type Error = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
-        bincode::deserialize(bytes.as_ref()).map_err(|_| ()) // TODO: error
+        bincode::deserialize(bytes.as_ref()).map_err(|e| e.into())
+    }
+}
+
+#[derive(Display, Serialize)]
+#[repr(u16)]
+pub(crate) enum Operation {
+    #[display(fmt = "MapStoreOperation {{ }}")]
+    MapStoreOperation {
+        // TODO: id, key, value...
+        payload: Payload,
+    } = MAP_STORE_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
+}
+
+impl Operation {
+    pub(crate) fn map_store(payload: Payload) -> Self {
+        MapStoreOperation { payload }
+    }
+}
+
+impl Into<Payload> for Operation {
+    fn into(self) -> Payload {
+        Payload::from(bincode::serialize(&self).expect("Unable to serialize"))
     }
 }
 
