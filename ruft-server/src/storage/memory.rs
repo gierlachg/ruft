@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fmt::{self, Display, Formatter};
 
 use async_trait::async_trait;
 
@@ -81,12 +80,6 @@ impl Log for MemoryLog {
             .skip_while(|(p, _)| p == position)
             .next()
             .map(|(p, e)| (position, *p, e.clone()))
-    }
-}
-
-impl Display for MemoryLog {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        write!(formatter, "VOLATILE")
     }
 }
 

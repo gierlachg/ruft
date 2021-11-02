@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::path::Path;
 use std::time::Duration;
 
 use derive_more::Display;
@@ -13,34 +12,23 @@ use crate::automaton::Transition::{CANDIDATE, FOLLOWER, LEADER, TERMINATED};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Response;
 use crate::relay::Relay;
-use crate::storage::file::{FileLog, FileState};
-use crate::storage::State;
+use crate::storage::{Log, State};
 use crate::{Id, Position};
 
 mod candidate;
 mod follower;
 mod leader;
 
-pub(super) async fn run<C: Cluster, R: Relay>(
-    directory: impl AsRef<Path>,
+pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
     id: Id,
     heartbeat_interval: Duration,
     election_timeout: Duration,
+    mut state: S,
+    mut log: L,
     mut cluster: C,
     mut relay: R,
 ) {
-    match tokio::fs::metadata(directory.as_ref()).await {
-        Ok(metadata) if metadata.is_dir() => {} // TODO: check empty or both files are there
-        Ok(_) => panic!("Path must be a directory"), // TODO:
-        Err(_) => tokio::fs::create_dir(&directory).await.unwrap(), // TODO:
-    }
-
-    let mut state = FileState::init(&directory);
     let mut transition = Transition::follower(state.load().await.unwrap_or(0), None);
-
-    let mut log = FileLog::init(&directory).await;
-    info!("Using {} log", &log);
-
     loop {
         info!("Switching over to: {:?}", transition);
 

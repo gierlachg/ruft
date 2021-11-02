@@ -1,4 +1,3 @@
-use std::fmt::{self, Display, Formatter};
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 
@@ -14,7 +13,7 @@ pub(crate) struct FileState {
 }
 
 impl FileState {
-    pub(crate) fn init(directory: impl AsRef<Path>) -> Self {
+    pub(super) fn init(directory: impl AsRef<Path>) -> Self {
         let file = directory.as_ref().join(Path::new("state"));
         FileState { file }
     }
@@ -57,7 +56,7 @@ pub(crate) struct FileLog {
 }
 
 impl FileLog {
-    pub(crate) async fn init(directory: impl AsRef<Path>) -> Self {
+    pub(super) async fn init(directory: impl AsRef<Path>) -> Self {
         let file = directory.as_ref().join(Path::new("log"));
         match tokio::fs::metadata(file.as_path()).await {
             Ok(_) => {
@@ -143,12 +142,6 @@ impl Log for FileLog {
             }
             _ => None,
         }
-    }
-}
-
-impl Display for FileLog {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        write!(formatter, "FILE")
     }
 }
 
