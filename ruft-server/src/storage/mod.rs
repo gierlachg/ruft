@@ -1,6 +1,9 @@
+use std::io;
+use std::ops::Deref;
 use std::path::Path;
 
 use async_trait::async_trait;
+use tokio_stream::StreamExt;
 
 use crate::storage::file::{FileLog, FileState};
 use crate::{Payload, Position};
@@ -10,7 +13,7 @@ pub(crate) mod memory;
 
 pub(crate) async fn init(directory: impl AsRef<Path>) -> (FileState, FileLog) {
     match tokio::fs::metadata(directory.as_ref()).await {
-        Ok(metadata) if metadata.is_dir() => {} // TODO: check empty or both files are there
+        Ok(metadata) if metadata.is_dir() => {} // TODO: check none or both files are there ?
         Ok(_) => panic!("Path is not a directory"),
         Err(_) => tokio::fs::create_dir(&directory).await.unwrap(),
     }

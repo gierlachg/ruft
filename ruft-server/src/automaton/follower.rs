@@ -140,7 +140,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         } else if self.term == term {
             None
         } else {
-            // TODO: persist votee (state) before sending the response
+            // TODO: persist state before sending the response, otherwise double vote possible
             if position >= *self.log.head() {
                 self.cluster
                     .send(&candidate, Message::vote_response(self.id, self.term, true))
