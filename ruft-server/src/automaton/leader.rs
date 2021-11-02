@@ -9,8 +9,8 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::{self, ReplicateRequest};
 use crate::relay::Relay;
-use crate::storage::{noop_message, Log};
-use crate::{Id, Position};
+use crate::storage::Log;
+use crate::{Id, Payload, Position};
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
@@ -50,7 +50,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         // TODO:
         self.registry.init(
             self.cluster.members(),
-            self.log.extend(self.term, vec![noop_message()]).await,
+            self.log.extend(self.term, vec![Payload::empty()]).await,
         );
 
         let mut ticker = tokio::time::interval(self.heartbeat_interval);

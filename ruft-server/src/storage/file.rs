@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
-use crate::storage::{noop_message, Log, State};
+use crate::storage::{Log, State};
 use crate::{Id, Payload, Position};
 
 pub(crate) struct FileState {
@@ -85,7 +85,7 @@ impl FileLog {
             Err(_) => {
                 let mut file = SequentialFile::from(file).await.unwrap();
                 let head = Position::initial();
-                file.append(vec![(head, noop_message())].into_iter()).await.unwrap();
+                file.append(vec![(head, Payload::empty())].into_iter()).await.unwrap();
                 FileLog {
                     file: Mutex::new(file),
                     head,

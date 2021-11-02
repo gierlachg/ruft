@@ -182,6 +182,10 @@ impl Ord for Position {
 struct Payload(Bytes);
 
 impl Payload {
+    fn empty() -> Payload {
+        Payload::from_static(&[])
+    }
+
     fn from_static(bytes: &'static [u8]) -> Self {
         Payload(Bytes::from_static(bytes))
     }

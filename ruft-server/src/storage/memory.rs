@@ -3,7 +3,7 @@ use std::fmt::{self, Display, Formatter};
 
 use async_trait::async_trait;
 
-use crate::storage::{noop_message, Log};
+use crate::storage::Log;
 use crate::{Payload, Position};
 
 pub(crate) struct MemoryLog {
@@ -13,7 +13,7 @@ pub(crate) struct MemoryLog {
 impl MemoryLog {
     pub(crate) fn _init() -> Self {
         let mut entries = BTreeMap::new();
-        entries.insert(Position::initial(), noop_message());
+        entries.insert(Position::initial(), Payload::empty());
 
         MemoryLog { entries }
     }
