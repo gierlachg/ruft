@@ -1,12 +1,19 @@
 use async_trait::async_trait;
 
-use crate::{Payload, Position};
+use crate::{Id, Payload, Position};
 
 pub(crate) mod file;
 pub(crate) mod memory;
 
 pub(crate) fn noop_message() -> Payload {
     Payload::from_static(&[])
+}
+
+#[async_trait]
+pub(crate) trait State {
+    async fn load(&self) -> (u64, Option<Id>);
+
+    async fn store(&mut self, term: u64, votee: Option<Id>);
 }
 
 #[async_trait]

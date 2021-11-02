@@ -3,7 +3,7 @@ use std::time::Duration;
 use log::info;
 
 use crate::automaton::Responder;
-use crate::automaton::State::{self, TERMINATED};
+use crate::automaton::Transition::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;
@@ -47,14 +47,14 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         }
     }
 
-    pub(super) async fn run(mut self) -> State {
+    pub(super) async fn run(mut self) -> Transition {
         tokio::pin! {
            let sleep = tokio::time::sleep(self.election_timeout);
         }
         loop {
             tokio::select! {
                 _ = &mut sleep => {
-                    break State::candidate(self.term + 1)
+                    break Transition::candidate(self.term + 1)
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => match self.on_message(message).await {
@@ -72,7 +72,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         }
     }
 
-    async fn on_message(&mut self, message: Message) -> (bool, Option<State>) {
+    async fn on_message(&mut self, message: Message) -> (bool, Option<Transition>) {
         #[rustfmt::skip]
         match message {
             AppendRequest { leader, term, preceding, entries_term, entries, committed } => {
@@ -98,7 +98,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         entries_term: u64,
         entries: Vec<Payload>,
         _committed: Position,
-    ) -> (bool, Option<State>) {
+    ) -> (bool, Option<Transition>) {
         if self.term > term {
             self.cluster
                 .send(&leader, Message::append_response(self.id, self.term, Err(preceding)))
@@ -122,19 +122,19 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
             }
             (true, None)
         } else {
-            (false, Some(State::follower(term, None, Some(leader))))
+            (false, Some(Transition::follower(term, None, Some(leader))))
         }
     }
 
-    fn on_append_response(&mut self, term: u64) -> Option<State> {
+    fn on_append_response(&mut self, term: u64) -> Option<Transition> {
         if self.term >= term {
             None
         } else {
-            Some(State::follower(term, None, None))
+            Some(Transition::follower(term, None, None))
         }
     }
 
-    async fn on_vote_request(&mut self, candidate: Id, term: u64, position: Position) -> Option<State> {
+    async fn on_vote_request(&mut self, candidate: Id, term: u64, position: Position) -> Option<Transition> {
         if self.term > term {
             self.cluster
                 .send(&candidate, Message::vote_response(self.id, self.term, false))
@@ -145,7 +145,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
                 self.cluster
                     .send(&candidate, Message::vote_response(self.id, self.term, true))
                     .await;
-                Some(State::follower(term, Some(candidate), None))
+                Some(Transition::follower(term, Some(candidate), None))
             } else {
                 None
             }
@@ -154,18 +154,19 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
                 self.cluster
                     .send(&candidate, Message::vote_response(self.id, self.term, true))
                     .await;
-                Some(State::follower(term, Some(candidate), None))
+                Some(Transition::follower(term, Some(candidate), None))
             } else {
-                Some(State::follower(term, None, None))
+                Some(Transition::follower(term, None, None))
             }
         }
+        // TODO: persist votee (state) before responding to vote request
     }
 
-    fn on_vote_response(&mut self, term: u64) -> Option<State> {
+    fn on_vote_response(&mut self, term: u64) -> Option<Transition> {
         if self.term >= term {
             None
         } else {
-            Some(State::follower(term, None, None))
+            Some(Transition::follower(term, None, None))
         }
     }
 

@@ -5,41 +5,49 @@ use std::time::Duration;
 use derive_more::Display;
 use log::info;
 use rand::Rng;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::automaton::candidate::Candidate;
 use crate::automaton::follower::Follower;
 use crate::automaton::leader::Leader;
-use crate::automaton::State::{CANDIDATE, FOLLOWER, LEADER, TERMINATED};
+use crate::automaton::Transition::{CANDIDATE, FOLLOWER, LEADER, TERMINATED};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Response;
 use crate::relay::Relay;
-use crate::storage::Log;
+use crate::storage::file::{FileLog, FileState};
+use crate::storage::State;
 use crate::{Id, Position};
 
 mod candidate;
 mod follower;
 mod leader;
 
-pub(super) async fn run<L: Log, C: Cluster, R: Relay>(
+pub(super) async fn run<C: Cluster, R: Relay>(
     directory: impl AsRef<Path>,
     id: Id,
     heartbeat_interval: Duration,
     election_timeout: Duration,
-    mut log: L,
     mut cluster: C,
     mut relay: R,
 ) {
-    let file = directory.as_ref().join(Path::new("state"));
+    match tokio::fs::metadata(directory.as_ref()).await {
+        Ok(metadata) if metadata.is_dir() => {} // TODO: check empty or both files are there
+        Ok(_) => panic!("Path must be a directory"), // TODO:
+        Err(_) => tokio::fs::create_dir(&directory).await.unwrap(), // TODO:
+    }
 
-    let (term, votee) = load(file.as_path()).await.unwrap().unwrap_or((0, None));
-    let mut state = State::follower(term, votee, None);
-    info!("Starting as: {:?}", state);
+    let mut state = FileState::init(&directory);
+    let (term, votee) = state.load().await;
+    let mut transition = Transition::follower(term, votee, None);
+
+    let mut log = FileLog::init(&directory).await;
+    info!("Using {} log", &log);
 
     loop {
-        state = match state {
+        info!("Switching over to: {:?}", transition);
+
+        transition = match transition {
             FOLLOWER { term, votee, leader } => {
-                store(file.as_path(), term, votee).await.unwrap();
+                state.store(term, votee).await;
 
                 let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
                 Follower::init(
@@ -56,7 +64,7 @@ pub(super) async fn run<L: Log, C: Cluster, R: Relay>(
                 .await
             }
             CANDIDATE { term } => {
-                store(file.as_path(), term, None).await.unwrap();
+                state.store(term, None).await;
 
                 let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
                 Candidate::init(id, term, &mut log, &mut cluster, &mut relay, election_timeout)
@@ -64,7 +72,7 @@ pub(super) async fn run<L: Log, C: Cluster, R: Relay>(
                     .await
             }
             LEADER { term } => {
-                store(file.as_path(), term, None).await.unwrap();
+                state.store(term, None).await;
 
                 Leader::init(id, term, &mut log, &mut cluster, &mut relay, heartbeat_interval)
                     .run()
@@ -72,52 +80,11 @@ pub(super) async fn run<L: Log, C: Cluster, R: Relay>(
             }
             TERMINATED => break,
         };
-        info!("Switching over to: {:?}", state);
     }
-}
-
-async fn load(file: impl AsRef<Path>) -> Result<Option<(u64, Option<Id>)>, std::io::Error> {
-    match tokio::fs::metadata(file.as_ref()).await {
-        Ok(_) => {
-            let mut file = tokio::fs::OpenOptions::new()
-                .create(false)
-                .read(true)
-                .open(file)
-                .await?;
-
-            let term = file.read_u64_le().await?;
-            match file.read_u8().await? {
-                0 => Ok(Some((term, None))),
-                1 => Ok(Some((term, Some(Id(file.read_u8().await?))))),
-                _ => panic!("Unexpected value"), // TODO:
-            }
-        }
-        Err(_) => Ok(None),
-    }
-}
-
-async fn store(file: impl AsRef<Path>, term: u64, votee: Option<Id>) -> Result<(), std::io::Error> {
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(file)
-        .await?;
-
-    file.write_u64_le(term).await?;
-    match votee {
-        Some(votee) => {
-            file.write_u8(1).await?;
-            file.write_u8(votee.0).await?;
-        }
-        None => file.write_u8(0).await?,
-    }
-    file.sync_all().await.unwrap();
-    Ok(())
 }
 
 #[derive(PartialEq, Eq, Display, Debug)]
-enum State {
+enum Transition {
     #[display(fmt = "FOLLOWER {{ term: {}, leader: {:?} }}", term, leader)]
     FOLLOWER {
         term: u64,
@@ -132,7 +99,7 @@ enum State {
     TERMINATED,
 }
 
-impl State {
+impl Transition {
     fn follower(term: u64, votee: Option<Id>, leader: Option<Id>) -> Self {
         FOLLOWER { term, votee, leader }
     }

@@ -4,7 +4,7 @@ use std::time::Duration;
 use futures::future::join_all;
 
 use crate::automaton::Responder;
-use crate::automaton::State::{self, TERMINATED};
+use crate::automaton::Transition::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::{self, ReplicateRequest};
@@ -46,7 +46,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         }
     }
 
-    pub(super) async fn run(mut self) -> State {
+    pub(super) async fn run(mut self) -> Transition {
         // TODO:
         self.registry.init(
             self.cluster.members(),
@@ -78,7 +78,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         self.replicate(self.registry.nexts()).await;
     }
 
-    async fn on_message(&mut self, message: Message) -> Option<State> {
+    async fn on_message(&mut self, message: Message) -> Option<Transition> {
         #[rustfmt::skip]
         match message {
             AppendRequest { leader, term, preceding, entries_term: _, entries: _, committed: _ } => {
@@ -96,7 +96,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         }
     }
 
-    async fn on_append_request(&mut self, leader: Id, term: u64, preceding: Position) -> Option<State> {
+    async fn on_append_request(&mut self, leader: Id, term: u64, preceding: Position) -> Option<Transition> {
         if self.term > term {
             self.cluster
                 .send(&leader, Message::append_response(self.id, self.term, Err(preceding)))
@@ -106,7 +106,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             panic!("Double leader detected - term: {}, leader id: {:?}", term, leader);
         } else {
             self.redirect_client_requests(Some(&leader)).await;
-            Some(State::follower(term, None, Some(leader)))
+            Some(Transition::follower(term, None, Some(leader)))
         }
     }
 
@@ -115,7 +115,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         member: Id,
         term: u64,
         position: Result<Position, Position>,
-    ) -> Option<State> {
+    ) -> Option<Transition> {
         if self.term >= term {
             match position {
                 Ok(position) => match self.log.next(&position).await {
@@ -154,11 +154,11 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             None
         } else {
             self.redirect_client_requests(None).await;
-            Some(State::follower(term, None, None))
+            Some(Transition::follower(term, None, None))
         }
     }
 
-    async fn on_vote_request(&mut self, candidate: Id, term: u64) -> Option<State> {
+    async fn on_vote_request(&mut self, candidate: Id, term: u64) -> Option<Transition> {
         if self.term > term {
             self.cluster
                 .send(&candidate, Message::vote_response(self.id, self.term, false))
@@ -168,16 +168,16 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             None
         } else {
             self.redirect_client_requests(None).await;
-            Some(State::follower(term, None, None))
+            Some(Transition::follower(term, None, None))
         }
     }
 
-    async fn on_vote_response(&mut self, term: u64) -> Option<State> {
+    async fn on_vote_response(&mut self, term: u64) -> Option<Transition> {
         if self.term >= term {
             None
         } else {
             self.redirect_client_requests(None).await;
-            Some(State::follower(term, None, None))
+            Some(Transition::follower(term, None, None))
         }
     }
 

@@ -16,7 +16,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::cluster::PhysicalCluster;
 use crate::relay::PhysicalRelay;
-use crate::storage::file::FileLog;
 
 mod automaton;
 mod cluster;
@@ -40,15 +39,6 @@ pub async fn run(
     let (local_endpoint, remote_endpoints) = to_endpoints(local, remotes);
     let shutdown = Shutdown::watch();
 
-    match tokio::fs::metadata(directory.as_ref()).await {
-        Ok(metadata) if metadata.is_dir() => {} // TODO: check empty or both files are there
-        Ok(_) => panic!("Path must be a directory"),
-        Err(_) => tokio::fs::create_dir(&directory).await.unwrap(), // TODO:
-    }
-
-    let log = FileLog::init(&directory).await?;
-    info!("Using {} log", &log);
-
     let cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints, shutdown.clone()).await?;
     info!("{}", &cluster);
 
@@ -60,7 +50,6 @@ pub async fn run(
         local_endpoint.id(),
         heartbeat_interval,
         election_timeout,
-        log,
         cluster,
         relay,
     )
