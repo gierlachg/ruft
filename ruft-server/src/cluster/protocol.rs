@@ -110,9 +110,9 @@ impl Into<Bytes> for Message {
 }
 
 impl TryFrom<Bytes> for Message {
-    type Error = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
-        bincode::deserialize(bytes.as_ref()).map_err(|_| ()) // TODO: error
+        bincode::deserialize(bytes.as_ref()).map_err(|e| e.into())
     }
 }
