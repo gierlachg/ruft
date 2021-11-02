@@ -36,8 +36,7 @@ pub(super) async fn run<C: Cluster, R: Relay>(
     }
 
     let mut state = FileState::init(&directory);
-    let (term, votee) = state.load().await;
-    let mut transition = Transition::follower(term, votee, None);
+    let mut transition = Transition::follower(state.load().await.unwrap_or(0), None);
 
     let mut log = FileLog::init(&directory).await;
     info!("Using {} log", &log);
@@ -46,25 +45,16 @@ pub(super) async fn run<C: Cluster, R: Relay>(
         info!("Switching over to: {:?}", transition);
 
         transition = match transition {
-            FOLLOWER { term, votee, leader } => {
-                state.store(term, votee).await;
+            FOLLOWER { term, leader } => {
+                state.store(term).await;
 
                 let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
-                Follower::init(
-                    id,
-                    term,
-                    &mut log,
-                    &mut cluster,
-                    &mut relay,
-                    votee,
-                    leader,
-                    election_timeout,
-                )
-                .run()
-                .await
+                Follower::init(id, term, &mut log, &mut cluster, &mut relay, leader, election_timeout)
+                    .run()
+                    .await
             }
             CANDIDATE { term } => {
-                state.store(term, None).await;
+                state.store(term).await;
 
                 let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
                 Candidate::init(id, term, &mut log, &mut cluster, &mut relay, election_timeout)
@@ -72,7 +62,7 @@ pub(super) async fn run<C: Cluster, R: Relay>(
                     .await
             }
             LEADER { term } => {
-                state.store(term, None).await;
+                state.store(term).await;
 
                 Leader::init(id, term, &mut log, &mut cluster, &mut relay, heartbeat_interval)
                     .run()
@@ -86,11 +76,7 @@ pub(super) async fn run<C: Cluster, R: Relay>(
 #[derive(PartialEq, Eq, Display, Debug)]
 enum Transition {
     #[display(fmt = "FOLLOWER {{ term: {}, leader: {:?} }}", term, leader)]
-    FOLLOWER {
-        term: u64,
-        votee: Option<Id>,
-        leader: Option<Id>,
-    },
+    FOLLOWER { term: u64, leader: Option<Id> },
     #[display(fmt = "CANDIDATE {{ term: {} }}", term)]
     CANDIDATE { term: u64 },
     #[display(fmt = "LEADER {{ term: {} }}", term)]
@@ -100,8 +86,8 @@ enum Transition {
 }
 
 impl Transition {
-    fn follower(term: u64, votee: Option<Id>, leader: Option<Id>) -> Self {
-        FOLLOWER { term, votee, leader }
+    fn follower(term: u64, leader: Option<Id>) -> Self {
+        FOLLOWER { term, leader }
     }
 
     fn candidate(term: u64) -> Self {

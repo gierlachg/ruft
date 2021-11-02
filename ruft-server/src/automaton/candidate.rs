@@ -97,7 +97,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
                 .await;
             None
         } else {
-            Some(Transition::follower(term, None, Some(leader)))
+            Some(Transition::follower(term, Some(leader)))
         }
     }
 
@@ -105,7 +105,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         if self.term >= term {
             None
         } else {
-            Some(Transition::follower(term, None, None))
+            Some(Transition::follower(term, None))
         }
     }
 
@@ -118,7 +118,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         } else if self.term == term {
             None
         } else {
-            Some(Transition::follower(term, None, None))
+            Some(Transition::follower(term, None))
         }
     }
 
@@ -136,7 +136,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
                 None
             }
         } else {
-            Some(Transition::follower(term, None, None))
+            Some(Transition::follower(term, None))
         }
     }
 

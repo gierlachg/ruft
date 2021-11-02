@@ -106,7 +106,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             panic!("Double leader detected - term: {}, leader id: {:?}", term, leader);
         } else {
             self.redirect_client_requests(Some(&leader)).await;
-            Some(Transition::follower(term, None, Some(leader)))
+            Some(Transition::follower(term, Some(leader)))
         }
     }
 
@@ -154,7 +154,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             None
         } else {
             self.redirect_client_requests(None).await;
-            Some(Transition::follower(term, None, None))
+            Some(Transition::follower(term, None))
         }
     }
 
@@ -168,7 +168,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             None
         } else {
             self.redirect_client_requests(None).await;
-            Some(Transition::follower(term, None, None))
+            Some(Transition::follower(term, None))
         }
     }
 
@@ -177,7 +177,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             None
         } else {
             self.redirect_client_requests(None).await;
-            Some(Transition::follower(term, None, None))
+            Some(Transition::follower(term, None))
         }
     }
 

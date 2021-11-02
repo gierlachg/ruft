@@ -1,15 +1,15 @@
 use async_trait::async_trait;
 
-use crate::{Id, Payload, Position};
+use crate::{Payload, Position};
 
 pub(crate) mod file;
 pub(crate) mod memory;
 
 #[async_trait]
 pub(crate) trait State {
-    async fn load(&self) -> (u64, Option<Id>);
+    async fn load(&self) -> Option<u64>;
 
-    async fn store(&mut self, term: u64, votee: Option<Id>);
+    async fn store(&mut self, term: u64);
 }
 
 #[async_trait]

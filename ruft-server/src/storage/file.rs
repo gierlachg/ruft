@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 use crate::storage::{Log, State};
-use crate::{Id, Payload, Position};
+use crate::{Payload, Position};
 
 pub(crate) struct FileState {
     file: PathBuf,
@@ -22,7 +22,7 @@ impl FileState {
 
 #[async_trait]
 impl State for FileState {
-    async fn load(&self) -> (u64, Option<Id>) {
+    async fn load(&self) -> Option<u64> {
         match tokio::fs::metadata(self.file.as_path()).await {
             Ok(_) => {
                 let mut file = tokio::fs::OpenOptions::new()
@@ -32,18 +32,13 @@ impl State for FileState {
                     .await
                     .unwrap();
 
-                let term = file.read_u64_le().await.unwrap();
-                match file.read_u8().await.unwrap() {
-                    0 => (term, None),
-                    1 => (term, Some(Id(file.read_u8().await.unwrap()))),
-                    _ => panic!("Unexpected value"), // TODO:
-                }
+                Some(file.read_u64_le().await.unwrap())
             }
-            Err(_) => (0, None),
+            Err(_) => None,
         }
     }
 
-    async fn store(&mut self, term: u64, votee: Option<Id>) {
+    async fn store(&mut self, term: u64) {
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -53,14 +48,6 @@ impl State for FileState {
             .unwrap();
 
         file.write_u64_le(term).await.unwrap();
-        match votee {
-            Some(votee) => {
-                file.write_u8(1).await.unwrap();
-                file.write_u8(votee.0).await.unwrap();
-            }
-            None => file.write_u8(0).await.unwrap(),
-        }
-        file.sync_all().await.unwrap()
     }
 }
 

@@ -18,7 +18,6 @@ pub(super) struct Follower<'a, L: Log, C: Cluster, R: Relay> {
     cluster: &'a mut C,
     relay: &'a mut R,
 
-    votee: Option<Id>,
     leader: Option<Id>,
 
     election_timeout: Duration,
@@ -31,7 +30,6 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
-        votee: Option<Id>,
         leader: Option<Id>,
         election_timeout: Duration,
     ) -> Self {
@@ -41,7 +39,6 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
             log,
             cluster,
             relay,
-            votee,
             leader,
             election_timeout,
         }
@@ -122,7 +119,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
             }
             (true, None)
         } else {
-            (false, Some(Transition::follower(term, None, Some(leader))))
+            (false, Some(Transition::follower(term, Some(leader))))
         }
     }
 
@@ -130,7 +127,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         if self.term >= term {
             None
         } else {
-            Some(Transition::follower(term, None, None))
+            Some(Transition::follower(term, None))
         }
     }
 
@@ -141,32 +138,23 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
                 .await;
             None
         } else if self.term == term {
-            if self.votee.is_none() {
-                self.cluster
-                    .send(&candidate, Message::vote_response(self.id, self.term, true))
-                    .await;
-                Some(Transition::follower(term, Some(candidate), None))
-            } else {
-                None
-            }
+            None
         } else {
+            // TODO: persist votee (state) before sending the response
             if position >= *self.log.head() {
                 self.cluster
                     .send(&candidate, Message::vote_response(self.id, self.term, true))
                     .await;
-                Some(Transition::follower(term, Some(candidate), None))
-            } else {
-                Some(Transition::follower(term, None, None))
             }
+            Some(Transition::follower(term, None))
         }
-        // TODO: persist votee (state) before responding to vote request
     }
 
     fn on_vote_response(&mut self, term: u64) -> Option<Transition> {
         if self.term >= term {
             None
         } else {
-            Some(Transition::follower(term, None, None))
+            Some(Transition::follower(term, None))
         }
     }
 
