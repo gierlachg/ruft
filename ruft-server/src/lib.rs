@@ -39,7 +39,7 @@ pub async fn run(
     let (local_endpoint, remote_endpoints) = to_endpoints(local, remotes);
     let shutdown = Shutdown::watch();
 
-    let (state, log) = storage::init(directory.as_ref()).await;
+    let (state, log) = storage::init(directory.as_ref()).await?;
 
     let cluster = PhysicalCluster::init(local_endpoint.clone(), remote_endpoints, shutdown.clone()).await?;
     info!("{}", &cluster);

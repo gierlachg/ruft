@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 
@@ -56,26 +57,26 @@ pub(crate) struct FileLog {
 }
 
 impl FileLog {
-    pub(super) async fn init(directory: impl AsRef<Path>) -> Self {
+    pub(super) async fn init(directory: impl AsRef<Path>) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let file = directory.as_ref().join(Path::new("log"));
         match tokio::fs::metadata(file.as_path()).await {
             Ok(_) => {
-                let mut file = SequentialFile::from(file).await.unwrap();
-                let (head, _) = file.seek(&Position::terminal()).await.unwrap();
-                FileLog {
+                let mut file = SequentialFile::from(file).await?;
+                let (head, _) = file.seek(&Position::terminal()).await?;
+                Ok(FileLog {
                     file: Mutex::new(file),
                     // safety: log is not empty
                     head: head.unwrap(),
-                }
+                })
             }
             Err(_) => {
-                let mut file = SequentialFile::from(file).await.unwrap();
+                let mut file = SequentialFile::from(file).await?;
                 let head = Position::initial();
-                file.append(vec![(head, Payload::empty())].into_iter()).await.unwrap();
-                FileLog {
+                file.append(vec![(head, Payload::empty())].into_iter()).await?;
+                Ok(FileLog {
                     file: Mutex::new(file),
                     head,
-                }
+                })
             }
         }
     }
@@ -226,7 +227,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_created_then_initialized() {
-        let log = FileLog::init(EphemeralDirectory::new()).await;
+        let log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(log.head(), &Position::of(0, 0));
 
@@ -239,7 +240,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_empty_entries_appended_then_succeeds() {
-        let mut log = FileLog::init(EphemeralDirectory::new()).await;
+        let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(log.extend(1, vec![]).await, Position::of(0, 0));
 
@@ -250,7 +251,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entries_appended_then_succeeds() {
-        let mut log = FileLog::init(EphemeralDirectory::new()).await;
+        let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(log.extend(1, entries(1)).await, Position::of(1, 0));
         assert_eq!(log.extend(1, entries(2)).await, Position::of(1, 1));
@@ -290,7 +291,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_and_preceding_present_then_succeeds() {
-        let mut log = FileLog::init(EphemeralDirectory::new()).await;
+        let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(
             log.insert(&Position::of(0, 0), 1, entries(1)).await,
@@ -339,7 +340,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_but_preceding_term_missing_then_fails() {
-        let mut log = FileLog::init(EphemeralDirectory::new()).await;
+        let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(
             log.insert(&Position::of(5, 0), 10, entries(1)).await,
@@ -354,7 +355,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_but_preceding_index_missing_then_fails() {
-        let mut log = FileLog::init(EphemeralDirectory::new()).await;
+        let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         log.extend(5, entries(1)).await;
         assert_eq!(
@@ -370,7 +371,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn when_entry_inserted_in_the_middle_then_subsequent_entries_are_removed() {
-        let mut log = FileLog::init(EphemeralDirectory::new()).await;
+        let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         log.extend(5, vec![Payload::from_static(&[1]), Payload::from_static(&[2])])
             .await;
@@ -397,7 +398,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_next() {
-        let mut log = FileLog::init(EphemeralDirectory::new()).await;
+        let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(log.extend(10, entries(100)).await, Position::of(10, 0));
 

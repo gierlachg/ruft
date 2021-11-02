@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::path::Path;
 
 use async_trait::async_trait;
@@ -8,16 +9,16 @@ use crate::{Payload, Position};
 pub(crate) mod file;
 pub(crate) mod memory;
 
-pub(crate) async fn init(directory: impl AsRef<Path>) -> (FileState, FileLog) {
+pub(crate) async fn init(directory: impl AsRef<Path>) -> Result<(FileState, FileLog), Box<dyn Error + Send + Sync>> {
     match tokio::fs::metadata(directory.as_ref()).await {
         Ok(metadata) if metadata.is_dir() => {} // TODO: check none or both files are there ?
         Ok(_) => panic!("Path is not a directory"),
-        Err(_) => tokio::fs::create_dir(&directory).await.unwrap(),
+        Err(_) => tokio::fs::create_dir(&directory).await?,
     }
 
     let state = FileState::init(&directory);
-    let log = FileLog::init(&directory).await;
-    (state, log)
+    let log = FileLog::init(&directory).await?;
+    Ok((state, log))
 }
 
 #[async_trait]
