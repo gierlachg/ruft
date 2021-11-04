@@ -3,14 +3,15 @@ use std::time::Duration;
 
 use futures::future::join_all;
 
-use crate::automaton::Responder;
-use crate::automaton::Transition::{self, TERMINATED};
+use crate::automata::fsm::{Operation, FSM};
+use crate::automata::Responder;
+use crate::automata::Transition::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::{self, ReplicateRequest};
 use crate::relay::Relay;
 use crate::storage::Log;
-use crate::{Id, Payload, Position};
+use crate::{Id, Position};
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
@@ -20,6 +21,7 @@ pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
     log: &'a mut L,
     cluster: &'a mut C,
     relay: &'a mut R,
+    fsm: &'a mut FSM,
 
     registry: Registry,
 
@@ -33,6 +35,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
+        fsm: &'a mut FSM,
         heartbeat_interval: Duration,
     ) -> Self {
         Leader {
@@ -41,6 +44,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             log,
             cluster,
             relay,
+            fsm,
             registry: Registry::new(),
             heartbeat_interval,
         }
@@ -50,7 +54,8 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         // TODO:
         self.registry.init(
             self.cluster.members(),
-            self.log.extend(self.term, vec![Payload::empty()]).await,
+            // TODO:
+            self.log.extend(self.term, vec![Operation::NoOperation.into()]).await,
         );
 
         let mut ticker = tokio::time::interval(self.heartbeat_interval);
@@ -120,7 +125,14 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             match position {
                 Ok(position) => match self.log.next(&position).await {
                     Some((preceding_position, position, entry)) => {
-                        if self.registry.on_success(&member, preceding_position, &position) {
+                        // TODO:
+                        let (updated, committed) = self.registry.on_success(&member, preceding_position, &position);
+                        while self.fsm.applied() < &committed {
+                            let (_, p, payload) = self.log.next(self.fsm.applied()).await.unwrap(); // TODO:
+                            self.fsm.apply(p, payload);
+                        }
+
+                        if updated {
                             let message = Message::append_request(
                                 self.id,
                                 self.term,
@@ -133,7 +145,12 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                         }
                     }
                     None => {
-                        self.registry.on_success(&member, &position, &position.next());
+                        // TODO:
+                        let (_, committed) = self.registry.on_success(&member, &position, &position.next());
+                        while self.fsm.applied() < &committed {
+                            let (_, p, payload) = self.log.next(self.fsm.applied()).await.unwrap(); // TODO:
+                            self.fsm.apply(p, payload);
+                        }
                     }
                 },
                 Err(position) => {
@@ -280,7 +297,7 @@ impl Registry {
             .on_failure(missing)
     }
 
-    fn on_success(&mut self, member: &Id, replicated: &Position, next: &Position) -> bool {
+    fn on_success(&mut self, member: &Id, replicated: &Position, next: &Position) -> (bool, Position) {
         let updated = self
             .records
             .get_mut(member)
@@ -308,7 +325,7 @@ impl Registry {
                 }
             }
         }
-        updated
+        (updated, self.committed) // TODO: response should be sent back to the client...
     }
 
     fn replicated_on_majority(&self, position: &Position) -> bool {

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use crate::automaton::Responder;
-use crate::automaton::Transition::{self, TERMINATED};
+use crate::automata::Responder;
+use crate::automata::Transition::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request;

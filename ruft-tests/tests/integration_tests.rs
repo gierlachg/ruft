@@ -36,7 +36,9 @@ async fn test_successful_store() {
     let mut client = RuftClient::new(vec![client_endpoints[0]], 5_000).await.unwrap();
 
     // store some payload
-    let result = client.store(Payload::from_static(&[1])).await;
+    let result = client
+        .store("map", Payload::from_static(&[1]), Payload::from_static(&[2]))
+        .await;
 
     assert!(result.is_ok());
 }
@@ -53,7 +55,9 @@ async fn test_successful_store_single_node() {
     let mut client = RuftClient::new(vec![client_endpoint], 5_000).await.unwrap();
 
     // store some payload
-    let result = client.store(Payload::from_static(&[1])).await;
+    let result = client
+        .store("map", Payload::from_static(&[1]), Payload::from_static(&[2]))
+        .await;
 
     assert!(result.is_ok());
 }

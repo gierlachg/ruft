@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![feature(stmt_expr_attributes)]
 #![feature(arbitrary_enum_discriminant)]
+#![feature(map_entry_replace)]
 
 use std::cmp::Ordering;
 use std::error::Error;
@@ -17,7 +18,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::cluster::PhysicalCluster;
 use crate::relay::PhysicalRelay;
 
-mod automaton;
+mod automata;
 mod cluster;
 mod relay;
 mod storage;
@@ -47,7 +48,7 @@ pub async fn run(
     let relay = PhysicalRelay::init(local_endpoint.client_address().clone(), shutdown).await?;
     info!("Listening for client connections on {}", &relay);
 
-    automaton::run(
+    automata::run(
         local_endpoint.id(),
         heartbeat_interval,
         election_timeout,
@@ -181,7 +182,7 @@ impl Ord for Position {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Hash, Clone, Debug)]
 struct Payload(Bytes);
 
 impl Payload {

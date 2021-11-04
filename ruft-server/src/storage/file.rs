@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
+use crate::automata::fsm::Operation;
 use crate::storage::{Log, State};
 use crate::{Payload, Position};
 
@@ -72,7 +73,9 @@ impl FileLog {
             Err(_) => {
                 let mut file = SequentialFile::from(file).await?;
                 let head = Position::initial();
-                file.append(vec![(head, Payload::empty())].into_iter()).await?;
+                // TODO:
+                file.append(vec![(head, Operation::NoOperation.into())].into_iter())
+                    .await?;
                 Ok(FileLog {
                     file: Mutex::new(file),
                     head,

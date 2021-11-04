@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 
+use crate::automata::fsm::Operation;
 use crate::storage::Log;
 use crate::{Payload, Position};
 
@@ -12,7 +13,7 @@ pub(crate) struct MemoryLog {
 impl MemoryLog {
     pub(crate) fn _init() -> Self {
         let mut entries = BTreeMap::new();
-        entries.insert(Position::initial(), Payload::empty());
+        entries.insert(Position::initial(), Operation::NoOperation.into());
 
         MemoryLog { entries }
     }

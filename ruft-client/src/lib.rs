@@ -30,13 +30,14 @@ impl RuftClient {
         Ok(RuftClient { relay })
     }
 
-    // TODO: struct with id, generic over key & value
-    pub async fn store(&mut self, payload: Payload) -> Result<()> {
-        let request = Request::replicate(Operation::map_store(payload).into(), None);
+    // TODO: Into<Payload/Bytes/[u8]>...
+    pub async fn store(&mut self, id: &str, key: Payload, value: Payload) -> Result<()> {
+        let request = Request::replicate(Operation::map_store(id, key, value).into(), None);
         self.relay.send(request).await
     }
 }
 
+#[derive(Debug)]
 pub struct Payload(Bytes);
 
 impl Payload {

@@ -68,23 +68,26 @@ impl TryFrom<Bytes> for Response {
     }
 }
 
+// TODO: move it up ???
 #[derive(Display, Serialize)]
 #[repr(u16)]
-pub(crate) enum Operation {
-    #[display(fmt = "MapStoreOperation {{ }}")]
+pub(crate) enum Operation<'a> {
+    _NoOperation, // TODO: should not be needed...
+    #[display(fmt = "MapStoreOperation {{ id: {}, key: {:?}, value: {:?} }}", id, key, value)]
     MapStoreOperation {
-        // TODO: id, key, value...
-        payload: Payload,
+        id: &'a str,
+        key: Payload,
+        value: Payload,
     } = MAP_STORE_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
-impl Operation {
-    pub(crate) fn map_store(payload: Payload) -> Self {
-        MapStoreOperation { payload }
+impl<'a> Operation<'a> {
+    pub(crate) fn map_store(id: &'a str, key: Payload, value: Payload) -> Self {
+        MapStoreOperation { id, key, value }
     }
 }
 
-impl Into<Payload> for Operation {
+impl<'a> Into<Payload> for Operation<'a> {
     fn into(self) -> Payload {
         Payload::from(bincode::serialize(&self).expect("Unable to serialize"))
     }

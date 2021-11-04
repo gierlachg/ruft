@@ -5,10 +5,11 @@ use derive_more::Display;
 use log::info;
 use rand::Rng;
 
-use crate::automaton::candidate::Candidate;
-use crate::automaton::follower::Follower;
-use crate::automaton::leader::Leader;
-use crate::automaton::Transition::{CANDIDATE, FOLLOWER, LEADER, TERMINATED};
+use crate::automata::candidate::Candidate;
+use crate::automata::follower::Follower;
+use crate::automata::fsm::FSM;
+use crate::automata::leader::Leader;
+use crate::automata::Transition::{CANDIDATE, FOLLOWER, LEADER, TERMINATED};
 use crate::cluster::Cluster;
 use crate::relay::protocol::Response;
 use crate::relay::Relay;
@@ -17,6 +18,7 @@ use crate::{Id, Position};
 
 mod candidate;
 mod follower;
+pub(crate) mod fsm; // TODO:
 mod leader;
 
 pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
@@ -28,6 +30,8 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
     mut cluster: C,
     mut relay: R,
 ) {
+    let mut fsm = FSM::new();
+
     let mut transition = Transition::follower(state.load().await.unwrap_or(0), None);
     loop {
         info!("Switching over to: {:?}", transition);
@@ -37,9 +41,18 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
                 state.store(term).await;
 
                 let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
-                Follower::init(id, term, &mut log, &mut cluster, &mut relay, leader, election_timeout)
-                    .run()
-                    .await
+                Follower::init(
+                    id,
+                    term,
+                    &mut log,
+                    &mut cluster,
+                    &mut relay,
+                    &mut fsm,
+                    leader,
+                    election_timeout,
+                )
+                .run()
+                .await
             }
             CANDIDATE { term } => {
                 state.store(term).await;
@@ -52,9 +65,17 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
             LEADER { term } => {
                 state.store(term).await;
 
-                Leader::init(id, term, &mut log, &mut cluster, &mut relay, heartbeat_interval)
-                    .run()
-                    .await
+                Leader::init(
+                    id,
+                    term,
+                    &mut log,
+                    &mut cluster,
+                    &mut relay,
+                    &mut fsm,
+                    heartbeat_interval,
+                )
+                .run()
+                .await
             }
             TERMINATED => break,
         };
