@@ -186,7 +186,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             ReplicateRequest { payload, position } => match position {
                 Some(position) if self.log.at(&position).await.is_some() => {
                     assert!(position.term() < self.term);
-                    responder.respond_with_success();
+                    self.registry.on_client_request(position, responder);
                 }
                 _ => {
                     let position = self.log.extend(self.term, vec![payload]).await;
@@ -256,11 +256,20 @@ impl Registry {
     }
 
     fn on_client_request(&mut self, position: Position, responder: Responder) {
-        if self.records.len() == 0 {
+        if self.committed >= position {
+            responder.respond_with_success()
+        } else if self.records.len() == 0 {
             self.committed = position;
             responder.respond_with_success()
         } else {
-            self.responders.push_front((position, responder));
+            let index = self
+                .responders
+                .iter()
+                .rev()
+                .position(|(p, _)| p < &position)
+                .map(|p| p + 1)
+                .unwrap_or(0);
+            self.responders.insert(index, (position, responder));
         }
     }
 

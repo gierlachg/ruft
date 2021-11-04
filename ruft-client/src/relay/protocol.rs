@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::relay::protocol::Operation::MapStoreOperation;
 use crate::relay::protocol::Request::ReplicateRequest;
+use crate::relay::Position;
 use crate::Payload;
 
 const REPLICATE_REQUEST_ID: u8 = 1;
@@ -88,6 +89,3 @@ impl Into<Payload> for Operation {
         Payload::from(bincode::serialize(&self).expect("Unable to serialize"))
     }
 }
-
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct Position(u64, u64);

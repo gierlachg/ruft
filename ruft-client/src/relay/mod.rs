@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::relay::broker::Broker;
 use crate::relay::connector::Connector;
-use crate::relay::protocol::{Position, Request};
+use crate::relay::protocol::Request;
 use crate::relay::tcp::Connection;
 use crate::relay::State::{CONNECTED, DISCONNECTED, TERMINATED};
 use crate::{Result, RuftClientError};
@@ -114,6 +114,9 @@ impl Exchanges {
             .for_each(|exchange| exchange.responder().respond_with_error());
     }
 }
+
+#[derive(Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Position(u64, u64);
 
 struct Exchange(Request, Responder);
 
