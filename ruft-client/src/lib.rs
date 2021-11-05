@@ -30,32 +30,12 @@ impl RuftClient {
         Ok(RuftClient { relay })
     }
 
-    // TODO: Into<Payload/Bytes/[u8]>...
-    pub async fn store(&mut self, id: &str, key: Payload, value: Payload) -> Result<()> {
-        let request = Request::replicate(Operation::map_store(id, key, value).into(), None);
+    pub async fn store(&mut self, id: &str, key: &[u8], value: &[u8]) -> Result<()> {
+        let key = Bytes::from(key.to_vec());
+        let value = Bytes::from(value.to_vec());
+        let operation = Operation::map_store(id, key, value).into();
+        let request = Request::replicate(operation, None);
         self.relay.send(request).await
-    }
-}
-
-#[derive(Debug)]
-pub struct Payload(Bytes);
-
-impl Payload {
-    pub fn from_static(bytes: &'static [u8]) -> Self {
-        Payload(Bytes::from_static(bytes))
-    }
-
-    pub fn from(bytes: Vec<u8>) -> Self {
-        Payload(Bytes::from(bytes))
-    }
-}
-
-impl serde::Serialize for Payload {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(self.0.as_ref())
     }
 }
 

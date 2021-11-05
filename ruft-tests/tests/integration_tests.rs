@@ -4,7 +4,7 @@ use std::path::Path;
 use portpicker::pick_unused_port;
 use rand::Rng;
 
-use ruft_client::{Payload, RuftClient};
+use ruft_client::RuftClient;
 
 #[tokio::test(flavor = "current_thread")]
 #[should_panic(expected = "Unable to connect to the cluster")]
@@ -36,9 +36,7 @@ async fn test_successful_store() {
     let mut client = RuftClient::new(vec![client_endpoints[0]], 5_000).await.unwrap();
 
     // store some payload
-    let result = client
-        .store("map", Payload::from_static(&[1]), Payload::from_static(&[2]))
-        .await;
+    let result = client.store("map", &1u64.to_le_bytes(), &2u64.to_le_bytes()).await;
 
     assert!(result.is_ok());
 }
@@ -56,7 +54,7 @@ async fn test_successful_store_single_node() {
 
     // store some payload
     let result = client
-        .store("map", Payload::from_static(&[1]), Payload::from_static(&[2]))
+        .store("map", &1u64.to_le_bytes(), &2u64.to_le_bytes())
         .await;
 
     assert!(result.is_ok());

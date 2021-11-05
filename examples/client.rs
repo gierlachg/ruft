@@ -7,7 +7,7 @@ use log4rs::{
 };
 use tokio;
 
-use ruft_client::{Payload, RuftClient};
+use ruft_client::RuftClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse().unwrap()], 5_000)
         .await
         .unwrap();
-    match client.store("map", Payload::from_static(&[1]), Payload::from_static(&[2])).await {
+    match client.store("map", &1u64.to_le_bytes(), &2u64.to_le_bytes()).await {
         Ok(_) => {
             info!("Successfully stored");
         }
