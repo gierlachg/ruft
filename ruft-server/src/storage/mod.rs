@@ -45,7 +45,7 @@ pub(crate) trait Log: Sync {
     async fn next(&self, position: Position) -> Option<(Position, Position, Payload)>;
 
     //noinspection RsSelfConvention
-    fn into_stream(&mut self) -> Entries
+    fn into_stream(&self) -> Entries
     where
         Self: Sized,
     {

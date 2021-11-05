@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use derive_more::Display;
+use tokio_stream::{Stream, StreamExt};
 
 use crate::automata::fsm::Operation::{MapStoreOperation, NoOperation};
 use crate::{Payload, Position};
@@ -23,9 +24,18 @@ impl FSM {
         self.applied
     }
 
-    pub(crate) fn apply(&mut self, position: Position, payload: Payload) -> Payload {
+    pub(crate) async fn apply(&mut self, entries: impl Stream<Item = (Position, Payload)>) {
+        tokio::pin! {
+            let entries = entries;
+        }
+        while let Some((position, payload)) = entries.next().await {
+            self.apply_single(position, payload);
+        }
+    }
+
+    fn apply_single(&mut self, position: Position, payload: Payload) -> Payload {
         assert!(position > self.applied); // TODO: ???
-        self.applied = position;
+        self.applied = position; // TODO: move after actual apply?
 
         // TODO: deserialize earlier, before its replicated ???
         match (&payload).try_into().expect("Unable to deserialize") {

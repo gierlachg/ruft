@@ -169,20 +169,14 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         }
     }
 
-    // TODO: move to FSM
     async fn apply(&mut self, committed: Position) {
-        if self.fsm.applied() < committed {
-            while let Some((position, payload)) = self
-                .log
-                .into_stream()
-                .skip_while(|(position, _)| position <= &self.fsm.applied())
-                .take_while(|(position, _)| position <= &committed)
-                .next()
-                .await
-            {
-                self.fsm.apply(position, payload);
-            }
-        }
+        let applied = self.fsm.applied();
+        let entries = self
+            .log
+            .into_stream()
+            .skip_while(|(position, _)| position <= &applied)
+            .take_while(|(position, _)| position <= &committed);
+        self.fsm.apply(entries).await;
     }
 
     async fn on_vote_request(&mut self, candidate: Id, term: u64) -> Option<Transition> {

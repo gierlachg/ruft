@@ -33,9 +33,8 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
     let mut fsm = FSM::new();
 
     let mut transition = Transition::follower(state.load().await.unwrap_or(0), None);
+    info!("Starting as {:?}", transition);
     loop {
-        info!("Switching over to: {:?}", transition);
-
         transition = match transition {
             FOLLOWER { term, leader } => {
                 state.store(term).await;
@@ -70,6 +69,7 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
             }
             TERMINATED => break,
         };
+        info!("Switching over to {:?}", transition);
     }
 }
 
