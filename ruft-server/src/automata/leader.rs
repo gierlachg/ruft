@@ -22,9 +22,8 @@ pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
     log: &'a mut L,
     cluster: &'a mut C,
     relay: &'a mut R,
-    fsm: &'a mut FSM,
 
-    registry: Registry,
+    registry: Registry<'a>,
 
     heartbeat_interval: Duration,
 }
@@ -45,8 +44,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             log,
             cluster,
             relay,
-            fsm,
-            registry: Registry::new(),
+            registry: Registry::new(fsm),
             heartbeat_interval,
         }
     }
@@ -126,10 +124,11 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             match position {
                 Ok(position) => match self.log.next(position).await {
                     Some((preceding_position, position, entry)) => {
-                        // TODO:
-                        let (updated, committed) = self.registry.on_success(&member, &preceding_position, &position);
-                        self.apply(committed).await;
-                        if updated {
+                        if self
+                            .registry
+                            .on_success(&member, &preceding_position, &position, self.log)
+                            .await
+                        {
                             let message = Message::append_request(
                                 self.id,
                                 self.term,
@@ -142,9 +141,9 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                         }
                     }
                     None => {
-                        // TODO:
-                        let (_, committed) = self.registry.on_success(&member, &position, &position.next());
-                        self.apply(committed).await;
+                        self.registry
+                            .on_success(&member, &position, &position.next(), self.log)
+                            .await;
                     }
                 },
                 Err(position) => {
@@ -167,16 +166,6 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             self.redirect_client_requests(None).await;
             Some(Transition::follower(term, None))
         }
-    }
-
-    async fn apply(&mut self, committed: Position) {
-        let applied = self.fsm.applied();
-        let entries = self
-            .log
-            .into_stream()
-            .skip_while(|(position, _)| position <= &applied)
-            .take_while(|(position, _)| position <= &committed);
-        self.fsm.apply(entries).await;
     }
 
     async fn on_vote_request(&mut self, candidate: Id, term: u64) -> Option<Transition> {
@@ -255,18 +244,20 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     }
 }
 
-struct Registry {
+struct Registry<'a> {
     records: HashMap<Id, Record>,
     responders: VecDeque<(Position, Responder)>,
     committed: Position,
+    fsm: &'a mut FSM,
 }
 
-impl Registry {
-    fn new() -> Self {
+impl<'a> Registry<'a> {
+    fn new(fsm: &'a mut FSM) -> Self {
         Registry {
             records: HashMap::new(),
             responders: VecDeque::new(),
             committed: Position::initial(),
+            fsm,
         }
     }
 
@@ -301,7 +292,7 @@ impl Registry {
             .on_failure(missing)
     }
 
-    fn on_success(&mut self, member: &Id, replicated: &Position, next: &Position) -> (bool, Position) {
+    async fn on_success<L: Log>(&mut self, member: &Id, replicated: &Position, next: &Position, log: &mut L) -> bool {
         let updated = self
             .records
             .get_mut(member)
@@ -311,16 +302,25 @@ impl Registry {
             loop {
                 match self.responders.back() {
                     Some((position, _)) if position <= replicated => {
-                        if self.replicated_on_majority(&position) {
-                            self.committed = *position;
+                        if self.replicated_on_majority(position) {
+                            let position = *position;
+                            self.apply(log, position).await;
+                            self.fsm.apply_single(position, log.at(position).await.unwrap().2); // TODO:
+
+                            self.committed = position;
                             // safety: self.responders.back() above guarantees an item exists
+                            // TODO: response should be sent back to the client...
                             self.responders.pop_back().unwrap().1.respond_with_success()
                         } else {
                             break;
                         }
                     }
                     _ if replicated > &self.committed => {
-                        if self.replicated_on_majority(&replicated) {
+                        if self.replicated_on_majority(replicated) {
+                            let position = *replicated;
+                            self.apply(log, position).await;
+                            self.fsm.apply_single(position, log.at(position).await.unwrap().2); // TODO:
+
                             self.committed = *replicated;
                         }
                         break;
@@ -329,7 +329,17 @@ impl Registry {
                 }
             }
         }
-        (updated, self.committed) // TODO: response should be sent back to the client...
+        updated
+    }
+
+    async fn apply<L: Log>(&mut self, log: &mut L, replicated: Position) {
+        // TODO: optimize stream
+        let applied = self.fsm.applied();
+        let entries = log
+            .into_stream()
+            .skip_while(|(position, _)| position <= &applied)
+            .take_while(|(position, _)| position < &replicated);
+        self.fsm.apply(entries).await;
     }
 
     fn replicated_on_majority(&self, position: &Position) -> bool {

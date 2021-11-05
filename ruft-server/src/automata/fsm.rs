@@ -33,7 +33,7 @@ impl FSM {
         }
     }
 
-    fn apply_single(&mut self, position: Position, payload: Payload) -> Payload {
+    pub(crate) fn apply_single(&mut self, position: Position, payload: Payload) -> Payload {
         assert!(position > self.applied); // TODO: ???
         self.applied = position; // TODO: move after actual apply?
 

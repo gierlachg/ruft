@@ -152,12 +152,12 @@ impl Position {
     }
 
     fn next(&self) -> Self {
-        Position::of(self.0, self.index() + 1)
+        Position::of(self.0, self.1 + 1)
     }
 
     fn next_in(&self, term: u64) -> Self {
-        if self.term() == term {
-            Position::of(term, self.index() + 1)
+        if self.0 == term {
+            Position::of(term, self.1 + 1)
         } else {
             Position::of(term, 0)
         }
