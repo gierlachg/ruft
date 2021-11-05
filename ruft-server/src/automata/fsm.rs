@@ -19,8 +19,8 @@ impl FSM {
         }
     }
 
-    pub(crate) fn applied(&self) -> &Position {
-        &self.applied
+    pub(crate) fn applied(&self) -> Position {
+        self.applied
     }
 
     pub(crate) fn apply(&mut self, position: Position, payload: Payload) -> Payload {

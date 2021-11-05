@@ -53,9 +53,7 @@ async fn test_successful_store_single_node() {
     let mut client = RuftClient::new(vec![client_endpoint], 5_000).await.unwrap();
 
     // store some payload
-    let result = client
-        .store("map", &1u64.to_le_bytes(), &2u64.to_le_bytes())
-        .await;
+    let result = client.store("map", &1u64.to_le_bytes(), &2u64.to_le_bytes()).await;
 
     assert!(result.is_ok());
 }

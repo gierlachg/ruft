@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
 use futures::future::join_all;
+use tokio_stream::StreamExt;
 
 use crate::automata::fsm::{Operation, FSM};
 use crate::automata::Responder;
@@ -123,20 +124,16 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     ) -> Option<Transition> {
         if self.term >= term {
             match position {
-                Ok(position) => match self.log.next(&position).await {
+                Ok(position) => match self.log.next(position).await {
                     Some((preceding_position, position, entry)) => {
                         // TODO:
-                        let (updated, committed) = self.registry.on_success(&member, preceding_position, &position);
-                        while self.fsm.applied() < &committed {
-                            let (_, p, payload) = self.log.next(self.fsm.applied()).await.unwrap(); // TODO:
-                            self.fsm.apply(p, payload);
-                        }
-
+                        let (updated, committed) = self.registry.on_success(&member, &preceding_position, &position);
+                        self.apply(committed).await;
                         if updated {
                             let message = Message::append_request(
                                 self.id,
                                 self.term,
-                                *preceding_position,
+                                preceding_position,
                                 position.term(),
                                 vec![entry],
                                 *self.registry.committed(),
@@ -147,15 +144,12 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                     None => {
                         // TODO:
                         let (_, committed) = self.registry.on_success(&member, &position, &position.next());
-                        while self.fsm.applied() < &committed {
-                            let (_, p, payload) = self.log.next(self.fsm.applied()).await.unwrap(); // TODO:
-                            self.fsm.apply(p, payload);
-                        }
+                        self.apply(committed).await;
                     }
                 },
                 Err(position) => {
-                    let (preceding_position, position, entry) = self.log.at(&position).await.expect("Missing entry");
-                    if self.registry.on_failure(&member, position) {
+                    let (preceding_position, position, entry) = self.log.at(position).await.expect("Missing entry");
+                    if self.registry.on_failure(&member, &position) {
                         let message = Message::append_request(
                             self.id,
                             self.term,
@@ -172,6 +166,22 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         } else {
             self.redirect_client_requests(None).await;
             Some(Transition::follower(term, None))
+        }
+    }
+
+    // TODO: move to FSM
+    async fn apply(&mut self, committed: Position) {
+        if self.fsm.applied() < committed {
+            while let Some((position, payload)) = self
+                .log
+                .into_stream()
+                .skip_while(|(position, _)| position <= &self.fsm.applied())
+                .take_while(|(position, _)| position <= &committed)
+                .next()
+                .await
+            {
+                self.fsm.apply(position, payload);
+            }
         }
     }
 
@@ -201,7 +211,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     async fn on_client_request(&mut self, request: Request, responder: Responder) {
         match request {
             ReplicateRequest { payload, position } => match position {
-                Some(position) if self.log.at(&position).await.is_some() => {
+                Some(position) if self.log.at(position).await.is_some() => {
                     assert!(position.term() < self.term);
                     self.registry.on_client_request(position, responder);
                 }
@@ -216,13 +226,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
 
     async fn replicate(&self, items: impl Iterator<Item = (&Id, &Position)>) {
         let futures = items
-            .map(|(member, position)| self.replicate_single(member, &position))
+            .map(|(member, position)| self.replicate_single(member, *position))
             .collect::<Vec<_>>();
         join_all(futures).await;
     }
 
-    async fn replicate_single(&self, member: &Id, position: &Position) {
-        let message = match self.log.at(&position).await {
+    async fn replicate_single(&self, member: &Id, position: Position) {
+        let message = match self.log.at(position).await {
             Some((preceding_position, position, entry)) => Message::append_request(
                 self.id,
                 self.term,

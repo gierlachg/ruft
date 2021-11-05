@@ -126,9 +126,9 @@ impl Log for FileLog {
         }
     }
 
-    async fn at<'a>(&self, position: &'a Position) -> Option<(Position, &'a Position, Payload)> {
+    async fn at(&self, position: Position) -> Option<(Position, Position, Payload)> {
         let mut file = self.file.lock().await;
-        match file.seek(position).await.unwrap() {
+        match file.seek(&position).await.unwrap() {
             (Some(preceding), Some(current)) if &current == position => {
                 let payload = file.load().await.unwrap();
                 Some((preceding, position, payload))
@@ -137,7 +137,7 @@ impl Log for FileLog {
         }
     }
 
-    async fn next<'a>(&self, position: &'a Position) -> Option<(&'a Position, Position, Payload)> {
+    async fn next(&self, position: Position) -> Option<(Position, Position, Payload)> {
         let mut file = self.file.lock().await;
         match file.seek(&position.next()).await.unwrap() {
             (_, Some(next)) => {
@@ -234,11 +234,11 @@ mod tests {
 
         assert_eq!(log.head(), &Position::of(0, 0));
 
-        assert_eq!(log.at(&Position::of(0, 0)).await, None);
-        assert_eq!(log.at(&Position::of(0, 1)).await, None);
-        assert_eq!(log.at(&Position::of(1, 0)).await, None);
+        assert_eq!(log.at(Position::of(0, 0)).await, None);
+        assert_eq!(log.at(Position::of(0, 1)).await, None);
+        assert_eq!(log.at(Position::of(1, 0)).await, None);
 
-        assert_eq!(log.next(&Position::of(0, 0)).await, None);
+        assert_eq!(log.next(Position::of(0, 0)).await, None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -249,7 +249,7 @@ mod tests {
 
         assert_eq!(log.head(), &Position::of(0, 0));
 
-        assert_eq!(log.at(&Position::of(1, 0)).await, None);
+        assert_eq!(log.at(Position::of(1, 0)).await, None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -263,32 +263,32 @@ mod tests {
         assert_eq!(log.head(), &Position::of(2, 0));
 
         assert_eq!(
-            log.at(&Position::of(1, 0)).await,
-            Some((Position::of(0, 0), &Position::of(1, 0), bytes(1)))
+            log.at(Position::of(1, 0)).await,
+            Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            log.at(&Position::of(1, 1)).await,
-            Some((Position::of(1, 0), &Position::of(1, 1), bytes(2)))
+            log.at(Position::of(1, 1)).await,
+            Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
-        assert_eq!(log.at(&Position::of(1, 2)).await, None);
+        assert_eq!(log.at(Position::of(1, 2)).await, None);
         assert_eq!(
-            log.at(&Position::of(2, 0)).await,
-            Some((Position::of(1, 1), &Position::of(2, 0), bytes(3)))
+            log.at(Position::of(2, 0)).await,
+            Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
-        assert_eq!(log.at(&Position::of(2, 1)).await, None);
-        assert_eq!(log.at(&Position::of(3, 0)).await, None);
+        assert_eq!(log.at(Position::of(2, 1)).await, None);
+        assert_eq!(log.at(Position::of(3, 0)).await, None);
 
         assert_eq!(
-            log.next(&Position::of(0, 0)).await,
-            Some((&Position::of(0, 0), Position::of(1, 0), bytes(1)))
+            log.next(Position::of(0, 0)).await,
+            Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            log.next(&Position::of(1, 0)).await,
-            Some((&Position::of(1, 0), Position::of(1, 1), bytes(2)))
+            log.next(Position::of(1, 0)).await,
+            Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
         assert_eq!(
-            log.next(&Position::of(1, 1)).await,
-            Some((&Position::of(1, 1), Position::of(2, 0), bytes(3)))
+            log.next(Position::of(1, 1)).await,
+            Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
     }
 
@@ -312,32 +312,32 @@ mod tests {
         assert_eq!(log.head(), &Position::of(2, 0));
 
         assert_eq!(
-            log.at(&Position::of(1, 0)).await,
-            Some((Position::of(0, 0), &Position::of(1, 0), bytes(1)))
+            log.at(Position::of(1, 0)).await,
+            Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            log.at(&Position::of(1, 1)).await,
-            Some((Position::of(1, 0), &Position::of(1, 1), bytes(2)))
+            log.at(Position::of(1, 1)).await,
+            Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
-        assert_eq!(log.at(&Position::of(1, 2)).await, None);
+        assert_eq!(log.at(Position::of(1, 2)).await, None);
         assert_eq!(
-            log.at(&Position::of(2, 0)).await,
-            Some((Position::of(1, 1), &Position::of(2, 0), bytes(3)))
+            log.at(Position::of(2, 0)).await,
+            Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
-        assert_eq!(log.at(&Position::of(2, 1)).await, None);
-        assert_eq!(log.at(&Position::of(3, 0)).await, None);
+        assert_eq!(log.at(Position::of(2, 1)).await, None);
+        assert_eq!(log.at(Position::of(3, 0)).await, None);
 
         assert_eq!(
-            log.next(&Position::of(0, 0)).await,
-            Some((&Position::of(0, 0), Position::of(1, 0), bytes(1)))
+            log.next(Position::of(0, 0)).await,
+            Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            log.next(&Position::of(1, 0)).await,
-            Some((&Position::of(1, 0), Position::of(1, 1), bytes(2)))
+            log.next(Position::of(1, 0)).await,
+            Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
         assert_eq!(
-            log.next(&Position::of(1, 1)).await,
-            Some((&Position::of(1, 1), Position::of(2, 0), bytes(3)))
+            log.next(Position::of(1, 1)).await,
+            Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
     }
 
@@ -352,8 +352,8 @@ mod tests {
 
         assert_eq!(log.head(), &Position::of(0, 0));
 
-        assert_eq!(log.at(&Position::of(5, 0)).await, None);
-        assert_eq!(log.at(&Position::of(5, 1)).await, None);
+        assert_eq!(log.at(Position::of(5, 0)).await, None);
+        assert_eq!(log.at(Position::of(5, 1)).await, None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -368,8 +368,8 @@ mod tests {
 
         assert_eq!(log.head(), &Position::of(5, 0));
 
-        assert_eq!(log.at(&Position::of(5, 1)).await, None);
-        assert_eq!(log.at(&Position::of(5, 6)).await, None);
+        assert_eq!(log.at(Position::of(5, 1)).await, None);
+        assert_eq!(log.at(Position::of(5, 6)).await, None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -388,15 +388,15 @@ mod tests {
         assert_eq!(log.head(), &Position::of(5, 1));
 
         assert_eq!(
-            log.at(&Position::of(5, 0)).await,
-            Some((Position::of(0, 0), &Position::of(5, 0), bytes(1)))
+            log.at(Position::of(5, 0)).await,
+            Some((Position::of(0, 0), Position::of(5, 0), bytes(1)))
         );
         assert_eq!(
-            log.at(&Position::of(5, 1)).await,
-            Some((Position::of(5, 0), &Position::of(5, 1), bytes(4)))
+            log.at(Position::of(5, 1)).await,
+            Some((Position::of(5, 0), Position::of(5, 1), bytes(4)))
         );
-        assert_eq!(log.at(&Position::of(5, 2)).await, None);
-        assert_eq!(log.at(&Position::of(10, 0)).await, None);
+        assert_eq!(log.at(Position::of(5, 2)).await, None);
+        assert_eq!(log.at(Position::of(10, 0)).await, None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -406,19 +406,19 @@ mod tests {
         assert_eq!(log.extend(10, entries(100)).await, Position::of(10, 0));
 
         assert_eq!(
-            log.next(&Position::of(0, 0)).await,
-            Some((&Position::of(0, 0), Position::of(10, 0), bytes(100)))
+            log.next(Position::of(0, 0)).await,
+            Some((Position::of(0, 0), Position::of(10, 0), bytes(100)))
         );
         assert_eq!(
-            log.next(&Position::of(0, 100)).await,
-            Some((&Position::of(0, 100), Position::of(10, 0), bytes(100)))
+            log.next(Position::of(0, 100)).await,
+            Some((Position::of(0, 100), Position::of(10, 0), bytes(100)))
         );
         assert_eq!(
-            log.next(&Position::of(5, 5)).await,
-            Some((&Position::of(5, 5), Position::of(10, 0), bytes(100)))
+            log.next(Position::of(5, 5)).await,
+            Some((Position::of(5, 5), Position::of(10, 0), bytes(100)))
         );
-        assert_eq!(log.next(&Position::of(10, 0)).await, None);
-        assert_eq!(log.next(&Position::of(100, 10)).await, None);
+        assert_eq!(log.next(Position::of(10, 0)).await, None);
+        assert_eq!(log.next(Position::of(100, 10)).await, None);
     }
 
     fn entries(value: u8) -> Vec<Payload> {

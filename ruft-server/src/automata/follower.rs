@@ -1,8 +1,5 @@
 use std::time::Duration;
 
-use log::info;
-
-use crate::automata::fsm::FSM;
 use crate::automata::Responder;
 use crate::automata::Transition::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
@@ -18,7 +15,6 @@ pub(super) struct Follower<'a, L: Log, C: Cluster, R: Relay> {
     log: &'a mut L,
     cluster: &'a mut C,
     relay: &'a mut R,
-    fsm: &'a mut FSM,
 
     leader: Option<Id>,
 
@@ -32,7 +28,6 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
-        fsm: &'a mut FSM,
         leader: Option<Id>,
         election_timeout: Duration,
     ) -> Self {
@@ -42,7 +37,6 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
             log,
             cluster,
             relay,
-            fsm,
             leader,
             election_timeout,
         }
@@ -76,8 +70,8 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
     async fn on_message(&mut self, message: Message) -> (bool, Option<Transition>) {
         #[rustfmt::skip]
         match message {
-            AppendRequest { leader, term, preceding, entries_term, entries, committed } => {
-                self.on_append_request(leader, term, preceding,  entries_term, entries, committed).await
+            AppendRequest { leader, term, preceding, entries_term, entries, committed: _ } => {
+                self.on_append_request(leader, term, preceding,  entries_term, entries).await
             },
             AppendResponse { member: _, term, position: _} => {
                 (false, self.on_append_response(term))
@@ -98,7 +92,6 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         preceding: Position,
         entries_term: u64,
         entries: Vec<Payload>,
-        committed: Position,
     ) -> (bool, Option<Transition>) {
         if self.term > term {
             self.cluster
@@ -109,19 +102,11 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
             self.leader.replace(leader);
             match self.log.insert(&preceding, entries_term, entries).await {
                 Ok(position) => {
-                    // TODO:
-                    while self.fsm.applied() < &committed {
-                        let (_, p, payload) = self.log.next(self.fsm.applied()).await.unwrap(); // TODO:
-                        self.fsm.apply(p, payload);
-                    }
-
-                    //info!("Accepted: {:?}, committed: {:?}", position, committed);
                     self.cluster
                         .send(&leader, Message::append_response(self.id, self.term, Ok(position)))
                         .await
                 }
                 Err(position) => {
-                    info!("Missing: {:?}", position);
                     self.cluster
                         .send(&leader, Message::append_response(self.id, self.term, Err(position)))
                         .await

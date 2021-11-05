@@ -41,18 +41,9 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
                 state.store(term).await;
 
                 let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
-                Follower::init(
-                    id,
-                    term,
-                    &mut log,
-                    &mut cluster,
-                    &mut relay,
-                    &mut fsm,
-                    leader,
-                    election_timeout,
-                )
-                .run()
-                .await
+                Follower::init(id, term, &mut log, &mut cluster, &mut relay, leader, election_timeout)
+                    .run()
+                    .await
             }
             CANDIDATE { term } => {
                 state.store(term).await;
