@@ -12,9 +12,7 @@ use crate::cluster::Cluster;
 use crate::relay::protocol::Request::{self, ReplicateRequest};
 use crate::relay::Relay;
 use crate::storage::Log;
-use crate::{Id, Position};
-
-// TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
+use crate::{Id, Payload, Position};
 
 pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
     id: Id,
@@ -121,45 +119,37 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         position: Result<Position, Position>,
     ) -> Option<Transition> {
         if self.term >= term {
-            match position {
-                Ok(position) => match self.log.next(position).await {
-                    Some((preceding_position, position, entry)) => {
-                        if self
-                            .registry
-                            .on_success(&member, &preceding_position, &position, self.log)
-                            .await
-                        {
-                            let message = Message::append_request(
-                                self.id,
-                                self.term,
-                                preceding_position,
-                                position.term(),
-                                vec![entry],
-                                *self.registry.committed(),
-                            );
-                            self.cluster.send(&member, message).await;
-                        }
-                    }
-                    None => {
-                        self.registry
-                            .on_success(&member, &position, &position.next(), self.log)
-                            .await;
-                    }
-                },
-                Err(position) => {
-                    let (preceding_position, position, entry) = self.log.at(position).await.expect("Missing entry");
-                    if self.registry.on_failure(&member, &position) {
-                        let message = Message::append_request(
-                            self.id,
-                            self.term,
-                            preceding_position,
-                            position.term(),
-                            vec![entry],
-                            *self.registry.committed(),
-                        );
-                        self.cluster.send(&member, message).await;
+            if let Some((preceding, position, entry)) = match position {
+                Ok(position) => {
+                    let (preceding, position, entry) = self
+                        .log
+                        .next(position)
+                        .await
+                        .map(|(preceding, position, entry)| (preceding, position, Some(entry)))
+                        .unwrap_or((position, position.next(), None));
+                    if self.registry.on_success(&member, &preceding, &position, self.log).await {
+                        entry.map(|entry| (preceding, position, entry))
+                    } else {
+                        None
                     }
                 }
+                Err(position) => {
+                    if self.registry.on_failure(&member, &position) {
+                        Some(self.log.at(position).await.expect("Missing entry"))
+                    } else {
+                        None
+                    }
+                }
+            } {
+                let message = Message::append_request(
+                    self.id,
+                    self.term,
+                    preceding,
+                    position.term(),
+                    vec![entry],
+                    *self.registry.committed(),
+                );
+                self.cluster.send(&member, message).await;
             }
             None
         } else {
@@ -215,24 +205,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     }
 
     async fn replicate_single(&self, member: &Id, position: Position) {
-        let message = match self.log.at(position).await {
-            Some((preceding_position, position, entry)) => Message::append_request(
-                self.id,
-                self.term,
-                preceding_position,
-                position.term(),
-                vec![entry],
-                *self.registry.committed(),
-            ),
-            None => Message::append_request(
-                self.id,
-                self.term,
-                *self.log.head(),
-                self.term,
-                vec![],
-                *self.registry.committed(),
-            ),
-        };
+        let (preceding, term, entries) = self
+            .log
+            .at(position)
+            .await
+            .map(|(preceding, position, entry)| (preceding, position.term(), vec![entry]))
+            .unwrap_or((*self.log.head(), self.term, vec![]));
+        let message = Message::append_request(self.id, self.term, preceding, term, entries, *self.registry.committed());
         self.cluster.send(&member, message).await;
     }
 
@@ -305,7 +284,6 @@ impl<'a> Registry<'a> {
                         if self.replicated_on_majority(position) {
                             let position = *position;
                             self.apply(log, position).await;
-                            self.fsm.apply_single(position, log.at(position).await.unwrap().2); // TODO:
 
                             self.committed = position;
                             // safety: self.responders.back() above guarantees an item exists
@@ -319,7 +297,6 @@ impl<'a> Registry<'a> {
                         if self.replicated_on_majority(replicated) {
                             let position = *replicated;
                             self.apply(log, position).await;
-                            self.fsm.apply_single(position, log.at(position).await.unwrap().2); // TODO:
 
                             self.committed = *replicated;
                         }
@@ -332,14 +309,14 @@ impl<'a> Registry<'a> {
         updated
     }
 
-    async fn apply<L: Log>(&mut self, log: &mut L, replicated: Position) {
+    async fn apply<L: Log>(&mut self, log: &mut L, replicated: Position) -> Payload {
         // TODO: optimize stream
         let applied = self.fsm.applied();
         let entries = log
             .into_stream()
             .skip_while(|(position, _)| position <= &applied)
-            .take_while(|(position, _)| position < &replicated);
-        self.fsm.apply(entries).await;
+            .take_while(|(position, _)| position <= &replicated);
+        self.fsm.apply(entries).await
     }
 
     fn replicated_on_majority(&self, position: &Position) -> bool {

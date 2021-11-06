@@ -9,6 +9,8 @@ use crate::relay::Relay;
 use crate::storage::Log;
 use crate::{Id, Payload, Position};
 
+// TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
+
 pub(super) struct Follower<'a, L: Log, C: Cluster, R: Relay> {
     id: Id,
     term: u64,

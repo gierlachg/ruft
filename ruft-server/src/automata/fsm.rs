@@ -24,13 +24,15 @@ impl FSM {
         self.applied
     }
 
-    pub(crate) async fn apply(&mut self, entries: impl Stream<Item = (Position, Payload)>) {
+    pub(crate) async fn apply(&mut self, entries: impl Stream<Item = (Position, Payload)>) -> Payload {
         tokio::pin! {
             let entries = entries;
         }
-        while let Some((position, payload)) = entries.next().await {
-            self.apply_single(position, payload);
+        let mut payload = Payload::empty(); // TODO: Option, uninit... ???
+        while let Some((position, entry)) = entries.next().await {
+            payload = self.apply_single(position, entry);
         }
+        payload
     }
 
     pub(crate) fn apply_single(&mut self, position: Position, payload: Payload) -> Payload {
