@@ -36,24 +36,20 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         fsm: &'a mut FSM,
         heartbeat_interval: Duration,
     ) -> Self {
+        let registry = Registry::new(cluster.members(), Position::of(term, 0), fsm);
         Leader {
             id,
             term,
             log,
             cluster,
             relay,
-            registry: Registry::new(fsm),
+            registry,
             heartbeat_interval,
         }
     }
 
     pub(super) async fn run(mut self) -> Transition {
-        // TODO:
-        self.registry.init(
-            self.cluster.members(),
-            // TODO:
-            self.log.extend(self.term, vec![Operation::NoOperation.into()]).await,
-        );
+        self.log.extend(self.term, vec![Operation::NoOperation.into()]).await;
 
         let mut ticker = tokio::time::interval(self.heartbeat_interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -77,7 +73,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     }
 
     async fn on_tick(&mut self) {
-        self.replicate(self.registry.nexts()).await;
+        self.replicate(self.registry.nexts(|_| true)).await;
     }
 
     async fn on_message(&mut self, message: Message) -> Option<Transition> {
@@ -195,7 +191,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                 _ => {
                     let position = self.log.extend(self.term, vec![payload]).await;
                     self.registry.on_client_request(position, responder);
-                    self.replicate(self.registry.nexts_with(position)).await;
+                    self.replicate(self.registry.nexts(|p| p == position)).await;
                 }
             },
         }
@@ -235,19 +231,13 @@ struct Registry<'a> {
 }
 
 impl<'a> Registry<'a> {
-    fn new(fsm: &'a mut FSM) -> Self {
+    fn new(members: Vec<Id>, position: Position, fsm: &'a mut FSM) -> Self {
         Registry {
-            records: HashMap::new(),
+            records: members.into_iter().map(|id| (id, Record::new(position))).collect(),
             responders: VecDeque::new(),
             committed: Position::initial(),
             fsm,
         }
-    }
-
-    fn init(&mut self, members: Vec<Id>, position: Position) {
-        members.into_iter().for_each(|id| {
-            self.records.insert(id, Record::new(position));
-        });
     }
 
     fn on_client_request(&mut self, position: Position, responder: Responder) {
@@ -323,14 +313,10 @@ impl<'a> Registry<'a> {
             > self.records.len() / 2
     }
 
-    fn nexts(&self) -> impl Iterator<Item = (&Id, &Position)> {
-        self.records.iter().map(|(id, record)| (id, record.next()))
-    }
-
-    fn nexts_with(&self, position: Position) -> impl Iterator<Item = (&Id, &Position)> {
+    fn nexts<P: Fn(&Position) -> bool>(&self, predicate: P) -> impl Iterator<Item = (&Id, &Position)> {
         self.records
             .iter()
-            .filter(move |(_, record)| record.next() == position)
+            .filter(move |(_, record)| predicate(record.next()))
             .map(|(id, record)| (id, record.next()))
     }
 
