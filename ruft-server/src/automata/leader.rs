@@ -49,6 +49,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     }
 
     pub(super) async fn run(mut self) -> Transition {
+        // TODO:
         self.log.extend(self.term, vec![Operation::NoOperation.into()]).await;
 
         let mut ticker = tokio::time::interval(self.heartbeat_interval);

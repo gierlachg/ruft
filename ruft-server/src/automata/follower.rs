@@ -102,18 +102,10 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
             (false, None)
         } else if self.term == term {
             self.leader.replace(leader);
-            match self.log.insert(&preceding, entries_term, entries).await {
-                Ok(position) => {
-                    self.cluster
-                        .send(&leader, Message::append_response(self.id, self.term, Ok(position)))
-                        .await
-                }
-                Err(position) => {
-                    self.cluster
-                        .send(&leader, Message::append_response(self.id, self.term, Err(position)))
-                        .await
-                }
-            }
+            let result = self.log.insert(&preceding, entries_term, entries).await;
+            self.cluster
+                .send(&leader, Message::append_response(self.id, self.term, result))
+                .await;
             (true, None)
         } else {
             (false, Some(Transition::follower(term, Some(leader))))
