@@ -15,9 +15,9 @@ impl FSM {
         FSM { maps: HashMap::new() }
     }
 
-    pub(crate) fn apply(&mut self, payload: Payload) -> Payload {
+    pub(crate) fn apply(&mut self, payload: &Payload) -> Payload {
         // TODO: deserialize earlier, before its replicated ???
-        match (&payload).try_into().expect("Unable to deserialize") {
+        match (payload).try_into().expect("Unable to deserialize") {
             NoOperation => {
                 log::info!("Applying NOOP");
                 Payload::empty()

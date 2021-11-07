@@ -68,10 +68,10 @@ impl<'a> Stream for Entries<'a> {
         match self.future.as_mut() {
             Some(future) => match future.as_mut().poll(cx) {
                 Poll::Ready(result) => match result {
-                    Some((_, position, payload)) => {
+                    Some((_, position, entry)) => {
                         let future = Box::pin(self.log.next(position));
                         self.future.replace(future);
-                        Poll::Ready(Some((position, payload)))
+                        Poll::Ready(Some((position, entry)))
                     }
                     None => {
                         self.future.take();

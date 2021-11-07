@@ -130,8 +130,8 @@ impl Log for FileLog {
         let mut file = self.file.lock().await;
         match file.seek(&position).await.unwrap() {
             (Some(preceding), Some(current)) if &current == position => {
-                let payload = file.load().await.unwrap();
-                Some((preceding, position, payload))
+                let entry = file.load().await.unwrap();
+                Some((preceding, position, entry))
             }
             _ => None,
         }
@@ -141,8 +141,8 @@ impl Log for FileLog {
         let mut file = self.file.lock().await;
         match file.seek(&position.next()).await.unwrap() {
             (_, Some(next)) => {
-                let payload = file.load().await.unwrap();
-                Some((position, next, payload))
+                let entry = file.load().await.unwrap();
+                Some((position, next, entry))
             }
             _ => None,
         }

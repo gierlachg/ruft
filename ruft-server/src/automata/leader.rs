@@ -116,22 +116,23 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         position: Result<Position, Position>,
     ) -> Option<Transition> {
         if self.term >= term {
-            if let Some((preceding, position, entry)) = match position {
+            if let Some((preceding, current, entry)) = match position {
                 Ok(position) => {
-                    let (preceding, position, entry) = self
-                        .log
-                        .next(position)
-                        .await
-                        .map(|(preceding, position, entry)| (preceding, position, Some(entry)))
-                        .unwrap_or((position, position.next(), None));
-                    if self
-                        .registry
-                        .on_success(&member, &preceding, &position, self.log.into_stream())
-                        .await
-                    {
-                        entry.map(|entry| (preceding, position, entry))
-                    } else {
-                        None
+                    let entries = self.log.into_stream();
+                    match self.log.next(position).await {
+                        Some((preceding, current, entry)) => {
+                            if self.registry.on_success(&member, &preceding, &current, entries).await {
+                                Some((preceding, current, entry))
+                            } else {
+                                None
+                            }
+                        }
+                        None => {
+                            self.registry
+                                .on_success(&member, &position, &position.next(), entries)
+                                .await;
+                            None
+                        }
                     }
                 }
                 Err(position) => {
@@ -146,7 +147,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                     self.id,
                     self.term,
                     preceding,
-                    position.term(),
+                    current.term(),
                     vec![entry],
                     *self.registry.committed(),
                 );
@@ -210,13 +211,14 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             .log
             .at(position)
             .await
-            .map(|(preceding, position, entry)| (preceding, position.term(), vec![entry]))
+            .map(|(preceding, current, entry)| (preceding, current.term(), vec![entry]))
             .unwrap_or((*self.log.head(), self.term, vec![]));
         let message = Message::append_request(self.id, self.term, preceding, term, entries, *self.registry.committed());
         self.cluster.send(&member, message).await;
     }
 
     async fn redirect_client_requests(&mut self, leader: Option<&Id>) {
+        // TODO: reads should be redirected without position ???
         let leader_address = leader.map(|leader| *self.cluster.endpoint(leader).client_address());
         self.registry
             .responders()
@@ -281,7 +283,7 @@ impl<'a> Registry<'a> {
         if updated {
             let committed = self.committed;
             tokio::pin! {
-                // TODO: optimize stream
+                // TODO: optimize access
                 let entries = entries
                     .skip_while(|(position, _)| position <= &committed)
                     .take_while(|(position, _)| position <= &replicated);
@@ -291,7 +293,7 @@ impl<'a> Registry<'a> {
                     break;
                 }
 
-                self.fsm.apply(entry);
+                self.fsm.apply(&entry);
                 if let Some((_, responder)) = match self.responders.back() {
                     Some((p, _)) if p == position => self.responders.pop_back(),
                     _ => None,
