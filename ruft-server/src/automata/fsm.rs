@@ -2,51 +2,28 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use derive_more::Display;
-use tokio_stream::{Stream, StreamExt};
 
 use crate::automata::fsm::Operation::{MapStoreOperation, NoOperation};
-use crate::{Payload, Position};
+use crate::Payload;
 
 pub(crate) struct FSM {
-    applied: Position,
     maps: HashMap<String, HashMap<Payload, Payload>>,
 }
 
 impl FSM {
     pub(super) fn new() -> Self {
-        FSM {
-            applied: Position::initial(),
-            maps: HashMap::new(),
-        }
+        FSM { maps: HashMap::new() }
     }
 
-    pub(crate) fn applied(&self) -> Position {
-        self.applied
-    }
-
-    pub(crate) async fn apply(&mut self, entries: impl Stream<Item = (Position, Payload)>) -> Payload {
-        tokio::pin! {
-            let entries = entries;
-        }
-        let mut payload = Payload::empty(); // TODO: Option, uninit... ???
-        while let Some((position, entry)) = entries.next().await {
-            payload = self.apply_single(position, entry);
-        }
-        payload
-    }
-
-    pub(crate) fn apply_single(&mut self, position: Position, payload: Payload) -> Payload {
-        assert!(position > self.applied); // TODO: ???
-        self.applied = position; // TODO: move after actual apply?
-
+    pub(crate) fn apply(&mut self, payload: Payload) -> Payload {
         // TODO: deserialize earlier, before its replicated ???
         match (&payload).try_into().expect("Unable to deserialize") {
             NoOperation => {
-                log::info!("Applying NOOP - {:?}", position);
+                log::info!("Applying NOOP");
                 Payload::empty()
             }
             MapStoreOperation { id, key, value } => {
-                log::info!("Applying {} {:?} {:?} - {:?}", id, key, value, position);
+                log::info!("Applying {} {:?} {:?}", id, key, value);
                 self.store(id, key, value);
                 Payload::empty()
             }

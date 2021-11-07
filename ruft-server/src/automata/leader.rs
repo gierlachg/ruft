@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
 use futures::future::join_all;
-use tokio_stream::StreamExt;
+use tokio_stream::{Stream, StreamExt};
 
 use crate::automata::fsm::{Operation, FSM};
 use crate::automata::Responder;
@@ -127,7 +127,11 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                         .await
                         .map(|(preceding, position, entry)| (preceding, position, Some(entry)))
                         .unwrap_or((position, position.next(), None));
-                    if self.registry.on_success(&member, &preceding, &position, self.log).await {
+                    if self
+                        .registry
+                        .on_success(&member, &preceding, &position, self.log.into_stream())
+                        .await
+                    {
                         entry.map(|entry| (preceding, position, entry))
                     } else {
                         None
@@ -271,52 +275,43 @@ impl<'a> Registry<'a> {
             .on_failure(missing)
     }
 
-    async fn on_success<L: Log>(&mut self, member: &Id, replicated: &Position, next: &Position, log: &mut L) -> bool {
+    async fn on_success(
+        &mut self,
+        member: &Id,
+        replicated: &Position,
+        next: &Position,
+        entries: impl Stream<Item = (Position, Payload)>,
+    ) -> bool {
         let updated = self
             .records
             .get_mut(member)
             .expect("Missing member entry")
             .on_success(replicated, next);
         if updated {
-            loop {
-                match self.responders.back() {
-                    Some((position, _)) if position <= replicated => {
-                        if self.replicated_on_majority(position) {
-                            let position = *position;
-                            self.apply(log, position).await;
-
-                            self.committed = position;
-                            // safety: self.responders.back() above guarantees an item exists
-                            // TODO: response should be sent back to the client...
-                            self.responders.pop_back().unwrap().1.respond_with_success()
-                        } else {
-                            break;
-                        }
-                    }
-                    _ if replicated > &self.committed => {
-                        if self.replicated_on_majority(replicated) {
-                            let position = *replicated;
-                            self.apply(log, position).await;
-
-                            self.committed = *replicated;
-                        }
-                        break;
-                    }
-                    _ => break,
+            let committed = self.committed;
+            tokio::pin! {
+                // TODO: optimize stream
+                let entries = entries
+                    .skip_while(|(position, _)| position <= &committed)
+                    .take_while(|(position, _)| position <= &replicated);
+            }
+            while let Some((position, entry)) = entries.next().await {
+                if !self.replicated_on_majority(&position) {
+                    break;
                 }
+
+                self.fsm.apply(entry);
+                if let Some((_, responder)) = match self.responders.back() {
+                    Some((p, _)) if p == position => self.responders.pop_back(),
+                    _ => None,
+                } {
+                    responder.respond_with_success();
+                }
+
+                self.committed = position;
             }
         }
         updated
-    }
-
-    async fn apply<L: Log>(&mut self, log: &mut L, replicated: Position) -> Payload {
-        // TODO: optimize stream
-        let applied = self.fsm.applied();
-        let entries = log
-            .into_stream()
-            .skip_while(|(position, _)| position <= &applied)
-            .take_while(|(position, _)| position <= &replicated);
-        self.fsm.apply(entries).await
     }
 
     fn replicated_on_majority(&self, position: &Position) -> bool {
