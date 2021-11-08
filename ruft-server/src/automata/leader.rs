@@ -55,6 +55,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         let mut ticker = tokio::time::interval(self.heartbeat_interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
+            // TODO: stepping down....
             tokio::select! {
                 _ = ticker.tick() => {
                     self.on_tick().await
