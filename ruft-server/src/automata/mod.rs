@@ -14,7 +14,7 @@ use crate::cluster::Cluster;
 use crate::relay::protocol::Response;
 use crate::relay::Relay;
 use crate::storage::{Log, State};
-use crate::{Id, Position};
+use crate::{Id, Payload, Position};
 
 mod candidate;
 mod follower;
@@ -102,15 +102,13 @@ impl Transition {
 struct Responder(tokio::sync::mpsc::UnboundedSender<Response>);
 
 impl Responder {
-    fn respond_with_success(self) {
+    fn respond_with_success(self, payload: Option<Payload>) {
         // safety: client already disconnected
-        self.0.send(Response::replicate_success_response()).unwrap_or(())
+        self.0.send(Response::success(payload)).unwrap_or(())
     }
 
     fn respond_with_redirect(&self, address: Option<SocketAddr>, position: Option<Position>) {
         // safety: client already disconnected
-        self.0
-            .send(Response::replicate_redirect_response(address, position))
-            .unwrap_or(())
+        self.0.send(Response::redirect(address, position)).unwrap_or(())
     }
 }

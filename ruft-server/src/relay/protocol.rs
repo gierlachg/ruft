@@ -4,21 +4,25 @@ use bytes::Bytes;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
-use crate::relay::protocol::Response::{ReplicateRedirectResponse, ReplicateSuccessResponse};
+use crate::relay::protocol::Response::{Redirect, Success};
 use crate::{Payload, Position};
 
-const REPLICATE_REQUEST_ID: u16 = 1;
-const REPLICATE_SUCCESS_RESPONSE_ID: u16 = 2;
-const REPLICATE_REDIRECT_RESPONSE_ID: u16 = 3;
+const WRITE_REQUEST_ID: u8 = 1;
+const READ_REQUEST_ID: u8 = 2;
+
+const SUCCESS_RESPONSE_ID: u8 = 101;
+const REDIRECT_RESPONSE_ID: u8 = 102;
 
 #[derive(Display, Debug, Deserialize)]
-#[repr(u16)]
+#[repr(u8)]
 pub(crate) enum Request {
-    #[display(fmt = "ReplicateRequest {{ position: {:?} }}", position)]
-    ReplicateRequest {
+    #[display(fmt = "Write {{ position: {:?} }}", position)]
+    Write {
         payload: Payload,
         position: Option<Position>,
-    } = REPLICATE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    } = WRITE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(fmt = "Read {{ }}")]
+    Read { payload: Payload } = READ_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl TryFrom<Bytes> for Request {
@@ -30,29 +34,30 @@ impl TryFrom<Bytes> for Request {
 }
 
 #[derive(Display, Serialize)]
-#[repr(u16)]
+#[repr(u8)]
 pub(crate) enum Response {
-    #[display(fmt = "ReplicateSuccessResponse {{ }}")]
-    ReplicateSuccessResponse {} = REPLICATE_SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
+    // TODO: separate response set for writes and reads (empty & Option) ???
+    #[display(fmt = "Success {{ }}")]
+    Success { payload: Option<Payload> } = SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
-        fmt = "ReplicateRedirectResponse {{ leader_address: {:?}, position: {:?} }}",
+        fmt = "Redirect {{ leader_address: {:?}, position: {:?} }}",
         leader_address,
         position
     )]
-    ReplicateRedirectResponse {
+    Redirect {
         leader_address: Option<SocketAddr>,
         position: Option<Position>,
-    } = REPLICATE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
+    } = REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Response {
-    pub(crate) fn replicate_success_response() -> Self {
-        ReplicateSuccessResponse {}
+    pub(crate) fn success(payload: Option<Payload>) -> Self {
+        Success { payload }
     }
 
-    pub(crate) fn replicate_redirect_response(leader_address: Option<SocketAddr>, position: Option<Position>) -> Self {
-        ReplicateRedirectResponse {
+    pub(crate) fn redirect(leader_address: Option<SocketAddr>, position: Option<Position>) -> Self {
+        Redirect {
             leader_address,
             position,
         }

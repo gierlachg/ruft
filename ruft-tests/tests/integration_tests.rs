@@ -14,7 +14,7 @@ async fn test_client_connection_timeout() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn test_successful_store() {
+async fn test_map_read() {
     let endpoints = addresses(2);
     let client_endpoints = addresses(2);
 
@@ -35,14 +35,51 @@ async fn test_successful_store() {
     // start client
     let mut client = RuftClient::new(vec![client_endpoints[0]], 5_000).await.unwrap();
 
-    // store some payload
-    let result = client.store("map", &1u64.to_le_bytes(), &2u64.to_le_bytes()).await;
+    // read
+    let value = client.read("map", &1u64.to_le_bytes()).await.unwrap();
 
-    assert!(result.is_ok());
+    assert_eq!(value, None);
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn test_successful_store_single_node() {
+async fn test_map_store() {
+    let endpoints = addresses(2);
+    let client_endpoints = addresses(2);
+
+    // start 2 node cluster
+    spawn_node(
+        endpoints[0],
+        client_endpoints[0],
+        vec![endpoints[1]],
+        vec![client_endpoints[1]],
+    );
+    spawn_node(
+        endpoints[1],
+        client_endpoints[1],
+        vec![endpoints[0]],
+        vec![client_endpoints[0]],
+    );
+
+    // start client
+    let mut client = RuftClient::new(vec![client_endpoints[0]], 5_000).await.unwrap();
+
+    // write
+    let result = client.write("map", &1u64.to_le_bytes(), "1".as_bytes()).await;
+    assert!(result.is_ok());
+
+    let result = client.write("map", &1u64.to_le_bytes(), "2".as_bytes()).await;
+    assert!(result.is_ok());
+
+    // read
+    let value = client.read("map", &1u64.to_le_bytes()).await.unwrap().unwrap();
+    assert_eq!(String::from_utf8(value).unwrap(), "2");
+
+    let value = client.read("map", &2u64.to_le_bytes()).await.unwrap();
+    assert_eq!(value, None);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_map_store_single_node() {
     let local_endpoint = address();
     let client_endpoint = address();
 
@@ -52,10 +89,17 @@ async fn test_successful_store_single_node() {
     // start client
     let mut client = RuftClient::new(vec![client_endpoint], 5_000).await.unwrap();
 
-    // store some payload
-    let result = client.store("map", &1u64.to_le_bytes(), &2u64.to_le_bytes()).await;
-
+    // write
+    let result = client.write("map", &1u64.to_le_bytes(), "1".as_bytes()).await;
     assert!(result.is_ok());
+
+    let result = client.write("map", &1u64.to_le_bytes(), "2".as_bytes()).await;
+    assert!(result.is_ok());
+
+    // read
+    let value = client.read("map", &1u64.to_le_bytes()).await.unwrap().unwrap();
+
+    assert_eq!(String::from_utf8(value).unwrap(), "2");
 }
 
 fn spawn_node(

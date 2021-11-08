@@ -7,7 +7,7 @@ use bytes::Bytes;
 use log::info;
 use thiserror::Error;
 
-use crate::relay::protocol::{Operation, Request};
+use crate::relay::protocol::{Operation, Payload, Request};
 use crate::relay::Relay;
 
 mod relay;
@@ -30,12 +30,23 @@ impl RuftClient {
         Ok(RuftClient { relay })
     }
 
-    pub async fn store(&mut self, id: &str, key: &[u8], value: &[u8]) -> Result<()> {
+    pub async fn write(&mut self, id: &str, key: &[u8], value: &[u8]) -> Result<()> {
         let key = Bytes::from(key.to_vec());
         let value = Bytes::from(value.to_vec());
-        let operation = Operation::map_store(id, key, value).into();
-        let request = Request::replicate(operation, None);
-        self.relay.send(request).await
+        let operation = Operation::map_write(id, key, value).into();
+        let request = Request::write(operation, None);
+        self.relay.send(request).await?;
+        Ok(())
+    }
+
+    pub async fn read(&mut self, id: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let key = Bytes::from(key.to_vec());
+        let operation = Operation::map_read(id, key).into();
+        let request = Request::read(operation);
+        self.relay
+            .send(request)
+            .await
+            .map(|payload| payload.map(Payload::inner))
     }
 }
 

@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use crate::relay::protocol::Response::{self, ReplicateRedirectResponse, ReplicateSuccessResponse};
+use crate::relay::protocol::Response::{self, Redirect, Success};
 use crate::relay::tcp::Connection;
 use crate::relay::State::{DISCONNECTED, TERMINATED};
 use crate::relay::{Exchange, Exchanges, Receiver, Sender, State};
@@ -33,8 +33,8 @@ impl Broker {
                 },
                 result = connection.read() => match result.and_then(Result::ok).and_then(|bytes| Response::try_from(bytes).ok()) {
                     Some(response) => match response {
-                        ReplicateSuccessResponse {} =>  exchanges.dequeue().responder().respond_with_success(),
-                        ReplicateRedirectResponse {leader_address, position} => match leader_address {
+                        Success {payload} =>  exchanges.dequeue().responder().respond_with_success(payload),
+                        Redirect {leader_address, position} => match leader_address {
                             Some(leader_address) if &leader_address != connection.endpoint() => {
                                 Self::drain(connection, exchanges.split_off(1), requests.0.clone());
                                 exchanges.requeue(position);
@@ -69,8 +69,8 @@ impl Broker {
                     .and_then(|bytes| Response::try_from(bytes).ok())
                 {
                     Some(response) => match response {
-                        ReplicateSuccessResponse {} => exchanges.dequeue().responder().respond_with_success(),
-                        ReplicateRedirectResponse {
+                        Success { payload } => exchanges.dequeue().responder().respond_with_success(payload),
+                        Redirect {
                             leader_address: _,
                             position,
                         } => {

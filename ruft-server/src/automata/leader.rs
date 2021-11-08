@@ -9,7 +9,7 @@ use crate::automata::Responder;
 use crate::automata::Transition::{self, TERMINATED};
 use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Request::{self, ReplicateRequest};
+use crate::relay::protocol::Request::{self, Read, Write};
 use crate::relay::Relay;
 use crate::storage::Log;
 use crate::{Id, Payload, Position};
@@ -185,17 +185,19 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
 
     async fn on_client_request(&mut self, request: Request, responder: Responder) {
         match request {
-            ReplicateRequest { payload, position } => match position {
+            Write { payload, position } => match position {
                 Some(position) if self.log.at(position).await.is_some() => {
                     assert!(position.term() < self.term);
-                    self.registry.on_client_request(position, responder);
+                    self.registry.on_client_write_request(position, payload, responder);
                 }
                 _ => {
-                    let position = self.log.extend(self.term, vec![payload]).await;
-                    self.registry.on_client_request(position, responder);
+                    let position = self.log.extend(self.term, vec![payload.clone()]).await; // TODO: avoid cloning
+                    self.registry.on_client_write_request(position, payload, responder);
                     self.replicate(self.registry.nexts(|p| p == position)).await;
                 }
             },
+            // TODO: linearizable reads...
+            Read { payload } => self.registry.on_client_read_request(payload, responder),
         }
     }
 
@@ -218,7 +220,6 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     }
 
     async fn redirect_client_requests(&mut self, leader: Option<&Id>) {
-        // TODO: reads should be redirected without position ???
         let leader_address = leader.map(|leader| *self.cluster.endpoint(leader).client_address());
         self.registry
             .responders()
@@ -226,6 +227,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     }
 }
 
+// TODO: limit number of pending requests ???
 struct Registry<'a> {
     records: HashMap<Id, Record>,
     responders: VecDeque<(Position, Responder)>,
@@ -243,12 +245,13 @@ impl<'a> Registry<'a> {
         }
     }
 
-    fn on_client_request(&mut self, position: Position, responder: Responder) {
+    fn on_client_write_request(&mut self, position: Position, payload: Payload, responder: Responder) {
         if self.committed >= position {
-            responder.respond_with_success()
+            responder.respond_with_success(None)
         } else if self.records.len() == 0 {
             self.committed = position;
-            responder.respond_with_success()
+            self.fsm.apply(&payload);
+            responder.respond_with_success(None)
         } else {
             let index = self
                 .responders
@@ -259,6 +262,10 @@ impl<'a> Registry<'a> {
                 .unwrap_or(0);
             self.responders.insert(index, (position, responder));
         }
+    }
+
+    fn on_client_read_request(&mut self, payload: Payload, responder: Responder) {
+        responder.respond_with_success(self.fsm.apply(&payload))
     }
 
     fn on_failure(&mut self, member: &Id, missing: &Position) -> bool {
@@ -293,12 +300,12 @@ impl<'a> Registry<'a> {
                     break;
                 }
 
-                self.fsm.apply(&entry);
+                let result = self.fsm.apply(&entry);
                 if let Some((_, responder)) = match self.responders.back() {
                     Some((p, _)) if p == position => self.responders.pop_back(),
                     _ => None,
                 } {
-                    responder.respond_with_success();
+                    responder.respond_with_success(result);
                 }
 
                 self.committed = position;

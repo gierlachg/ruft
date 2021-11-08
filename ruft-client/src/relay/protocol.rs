@@ -2,39 +2,54 @@ use std::net::SocketAddr;
 
 use bytes::Bytes;
 use derive_more::Display;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::relay::protocol::Operation::MapStoreOperation;
-use crate::relay::protocol::Request::ReplicateRequest;
+use crate::relay::protocol::Operation::{MapReadOperation, MapWriteOperation};
+use crate::relay::protocol::Request::{Read, Write};
 use crate::relay::Position;
 
-const REPLICATE_REQUEST_ID: u8 = 1;
-const REPLICATE_SUCCESS_RESPONSE_ID: u8 = 2;
-const REPLICATE_REDIRECT_RESPONSE_ID: u8 = 3;
+const WRITE_REQUEST_ID: u8 = 1;
+const READ_REQUEST_ID: u8 = 2;
 
-const MAP_STORE_OPERATION_ID: u16 = 1;
+const SUCCESS_RESPONSE_ID: u8 = 101;
+const REDIRECT_RESPONSE_ID: u8 = 102;
+
+const MAP_WRITE_OPERATION_ID: u8 = 1;
+const MAP_READ_OPERATION_ID: u8 = 2;
 
 #[derive(Display, Serialize)]
 #[repr(u8)]
 pub(crate) enum Request {
-    #[display(fmt = "ReplicateRequest {{ payload: {:?}, position: {:?} }}", payload, position)]
-    ReplicateRequest {
+    #[display(fmt = "Write {{ payload: {:?}, position: {:?} }}", payload, position)]
+    Write {
         payload: Payload,
         position: Option<Position>,
-    } = REPLICATE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    } = WRITE_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(fmt = "Read {{ }}")]
+    Read { payload: Payload } = READ_REQUEST_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Request {
-    pub(crate) fn replicate(payload: Bytes, position: Option<Position>) -> Self {
-        ReplicateRequest {
+    pub(crate) fn write(payload: Bytes, position: Option<Position>) -> Self {
+        Write {
             payload: Payload(payload),
             position,
         }
     }
 
+    pub(crate) fn read(payload: Bytes) -> Self {
+        Read {
+            payload: Payload(payload),
+        }
+    }
+
     pub(crate) fn with_position(self, position: Option<Position>) -> Self {
         match self {
-            ReplicateRequest { payload, position: _ } => ReplicateRequest { payload, position },
+            Write { payload, position: _ } => Write { payload, position },
+            Read { payload } => {
+                assert!(position.is_none());
+                Read { payload }
+            }
         }
     }
 }
@@ -48,18 +63,19 @@ impl Into<Bytes> for &Request {
 #[derive(Display, Deserialize)]
 #[repr(u8)]
 pub(crate) enum Response {
-    #[display(fmt = "ReplicateSuccessResponse {{ }}")]
-    ReplicateSuccessResponse {} = REPLICATE_SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
+    // TODO: separate response set for writes and reads (empty & Option) ???
+    #[display(fmt = "Success {{ }}")]
+    Success { payload: Option<Payload> } = SUCCESS_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 
     #[display(
-        fmt = "ReplicateRedirectResponse {{ leader_address: {:?}, position: {:?} }}",
+        fmt = "Redirect {{ leader_address: {:?}, position: {:?} }}",
         leader_address,
         position
     )]
-    ReplicateRedirectResponse {
+    Redirect {
         leader_address: Option<SocketAddr>,
         position: Option<Position>,
-    } = REPLICATE_REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
+    } = REDIRECT_RESPONSE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl TryFrom<Bytes> for Response {
@@ -70,26 +86,34 @@ impl TryFrom<Bytes> for Response {
     }
 }
 
-// TODO: move it up ???
 #[derive(Display, Serialize)]
-#[repr(u16)]
+#[repr(u8)]
 pub(crate) enum Operation<'a> {
     _NoOperation, // TODO: should not be needed... arbitrary_enum_discriminant
-    #[display(fmt = "MapStoreOperation {{ id: {}, key: {:?}, value: {:?} }}", id, key, value)]
-    MapStoreOperation {
+    #[display(fmt = "MapWriteOperation {{ id: {}, key: {:?}, value: {:?} }}", id, key, value)]
+    MapWriteOperation {
         id: &'a str,
         key: Payload,
         value: Payload,
-    } = MAP_STORE_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
+    } = MAP_WRITE_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(fmt = "MapReadOperation {{ id: {}, key: {:?} }}", id, key)]
+    MapReadOperation {
+        id: &'a str,
+        key: Payload,
+    } = MAP_READ_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl<'a> Operation<'a> {
-    pub(crate) fn map_store(id: &'a str, key: Bytes, value: Bytes) -> Self {
-        MapStoreOperation {
+    pub(crate) fn map_write(id: &'a str, key: Bytes, value: Bytes) -> Self {
+        MapWriteOperation {
             id,
             key: Payload(key),
             value: Payload(value),
         }
+    }
+
+    pub(crate) fn map_read(id: &'a str, key: Bytes) -> Self {
+        MapReadOperation { id, key: Payload(key) }
     }
 }
 
@@ -102,11 +126,27 @@ impl<'a> Into<Bytes> for Operation<'a> {
 #[derive(Debug)]
 pub(crate) struct Payload(Bytes);
 
+impl Payload {
+    pub(crate) fn inner(self) -> Vec<u8> {
+        self.0.to_vec() // TODO: avoid copying
+    }
+}
+
 impl Serialize for Payload {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         serializer.serialize_bytes(self.0.as_ref())
+    }
+}
+
+impl<'de> Deserialize<'de> for Payload {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // TODO: &[u8] ???
+        Vec::<u8>::deserialize(deserializer).map(|bytes| Payload(Bytes::from(bytes)))
     }
 }

@@ -16,12 +16,24 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse().unwrap()], 5_000)
         .await
         .unwrap();
-    match client.store("map", &1u64.to_le_bytes(), &2u64.to_le_bytes()).await {
+    match client.write("map", &1u64.to_le_bytes(), "1".as_bytes()).await {
         Ok(_) => {
             info!("Successfully stored");
         }
         Err(e) => {
             error!("Failed to store; error = {:?}", e);
+        }
+    }
+
+    match client.read("map", &1u64.to_le_bytes()).await {
+        Ok(response) => {
+            info!(
+                "Successfully read: {:?}",
+                response.map(|value| String::from_utf8(value).unwrap())
+            );
+        }
+        Err(e) => {
+            error!("Failed to read; error = {:?}", e);
         }
     }
 

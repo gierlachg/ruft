@@ -376,7 +376,7 @@ mod tests {
     async fn when_entry_inserted_in_the_middle_then_subsequent_entries_are_removed() {
         let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
-        log.extend(5, vec![Payload::from_static(&[1]), Payload::from_static(&[2])])
+        log.extend(5, vec![Payload::from(vec![1]), Payload::from(vec![2])])
             .await;
         log.extend(10, entries(3)).await;
 

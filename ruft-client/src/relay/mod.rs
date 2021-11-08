@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::relay::broker::Broker;
 use crate::relay::connector::Connector;
-use crate::relay::protocol::Request;
+use crate::relay::protocol::{Payload, Request};
 use crate::relay::tcp::Connection;
 use crate::relay::State::{CONNECTED, DISCONNECTED, TERMINATED};
 use crate::{Result, RuftClientError};
@@ -54,7 +54,7 @@ impl Relay {
         }
     }
 
-    pub(super) async fn send(&mut self, request: Request) -> Result<()> {
+    pub(super) async fn send(&mut self, request: Request) -> Result<Option<Payload>> {
         let (tx, rx) = oneshot::channel();
         self.requests
             .send((request, Responder(tx)))
@@ -130,12 +130,12 @@ impl Exchange {
     }
 }
 
-struct Responder(oneshot::Sender<Result<()>>);
+struct Responder(oneshot::Sender<Result<Option<Payload>>>);
 
 impl Responder {
-    fn respond_with_success(self) {
+    fn respond_with_success(self, payload: Option<Payload>) {
         // safety: client already dropped
-        self.0.send(Ok(())).unwrap_or(())
+        self.0.send(Ok(payload)).unwrap_or(())
     }
 
     fn respond_with_error(self) {

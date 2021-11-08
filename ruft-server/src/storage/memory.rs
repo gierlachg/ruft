@@ -237,7 +237,7 @@ mod tests {
         let mut storage = MemoryLog::_init();
 
         storage
-            .extend(5, vec![Payload::from_static(&[1]), Payload::from_static(&[2])])
+            .extend(5, vec![Payload::from(vec![1]), Payload::from(vec![2])])
             .await;
         storage.extend(10, entries(3)).await;
 

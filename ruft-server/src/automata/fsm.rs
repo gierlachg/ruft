@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use derive_more::Display;
 
-use crate::automata::fsm::Operation::{MapStoreOperation, NoOperation};
+use crate::automata::fsm::Operation::{MapReadOperation, MapWriteOperation, NoOperation};
 use crate::Payload;
 
 pub(crate) struct FSM {
@@ -15,22 +15,16 @@ impl FSM {
         FSM { maps: HashMap::new() }
     }
 
-    pub(crate) fn apply(&mut self, payload: &Payload) -> Payload {
+    pub(crate) fn apply(&mut self, payload: &Payload) -> Option<Payload> {
         // TODO: deserialize earlier, before its replicated ???
         match (payload).try_into().expect("Unable to deserialize") {
-            NoOperation => {
-                log::info!("Applying NOOP");
-                Payload::empty()
-            }
-            MapStoreOperation { id, key, value } => {
-                log::info!("Applying {} {:?} {:?}", id, key, value);
-                self.store(id, key, value);
-                Payload::empty()
-            }
+            NoOperation => None,
+            MapWriteOperation { id, key, value } => self.write(id, key, value),
+            MapReadOperation { id, key } => self.read(id, &key),
         }
     }
 
-    fn store(&mut self, id: &str, key: Payload, value: Payload) {
+    fn write(&mut self, id: &str, key: Payload, value: Payload) -> Option<Payload> {
         let map = self.maps.entry(id.to_owned()).or_insert(HashMap::new());
         match map.entry(key) {
             Entry::Occupied(entry) => {
@@ -39,20 +33,31 @@ impl FSM {
             Entry::Vacant(entry) => {
                 entry.insert(value);
             }
-        };
+        }
+        None
+    }
+
+    fn read(&mut self, id: &str, key: &Payload) -> Option<Payload> {
+        self.maps
+            .get(id)
+            .and_then(|map| map.get(key))
+            .map(|payload| payload.clone())
     }
 }
 
-const NO_OPERATION_ID: u16 = 0;
-const MAP_STORE_OPERATION_ID: u16 = 1;
+const NO_OPERATION_ID: u8 = 1;
+const MAP_WRITE_OPERATION_ID: u8 = 2;
+const MAP_READ_OPERATION_ID: u8 = 3;
 
 #[derive(Display, serde::Serialize, serde::Deserialize)]
-#[repr(u16)]
+#[repr(u8)]
 pub(crate) enum Operation<'a> {
     #[display(fmt = "NoOperation {{ }}")]
     NoOperation = NO_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used,
-    #[display(fmt = "MapStoreOperation {{ id: {}, key: {:?}, value: {:?} }}", id, key, value)]
-    MapStoreOperation { id: &'a str, key: Payload, value: Payload } = MAP_STORE_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(fmt = "MapWriteOperation {{ id: {}, key: {:?}, value: {:?} }}", id, key, value)]
+    MapWriteOperation { id: &'a str, key: Payload, value: Payload } = MAP_WRITE_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
+    #[display(fmt = "MapReadOperation {{ id: {}, key: {:?} }}", id, key)]
+    MapReadOperation { id: &'a str, key: Payload } = MAP_READ_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 // TODO: const ???

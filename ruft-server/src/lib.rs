@@ -186,14 +186,6 @@ impl Ord for Position {
 struct Payload(Bytes);
 
 impl Payload {
-    fn empty() -> Payload {
-        Payload::from_static(&[])
-    }
-
-    fn from_static(bytes: &'static [u8]) -> Self {
-        Payload(Bytes::from_static(bytes))
-    }
-
     fn from(bytes: Vec<u8>) -> Self {
         Payload(Bytes::from(bytes))
     }
@@ -213,7 +205,7 @@ impl<'de> Deserialize<'de> for Payload {
     where
         D: Deserializer<'de>,
     {
-        // TODO: &[u8]
+        // TODO: &[u8] ???
         Vec::<u8>::deserialize(deserializer).map(|bytes| Payload::from(bytes))
     }
 }
