@@ -141,6 +141,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
     }
 
     fn on_client_request(&mut self, _: Request, responder: Responder) {
+        // TODO: hold onto rerquest until leader is learnt
         responder.respond_with_redirect(None, None)
     }
 }

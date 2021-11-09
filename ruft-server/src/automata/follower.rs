@@ -148,6 +148,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
     }
 
     fn on_client_request(&mut self, _: Request, responder: Responder) {
+        // TODO: hold onto rerquest until leader is learnt
         let leader_address = self
             .leader
             .map(|ref leader| *self.cluster.endpoint(leader).client_address());
