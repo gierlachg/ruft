@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
 use futures::future::join_all;
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::StreamExt;
 
 use crate::automata::fsm::{Operation, FSM};
 use crate::automata::Responder;
@@ -11,7 +11,7 @@ use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, Vot
 use crate::cluster::Cluster;
 use crate::relay::protocol::Request::{self, Read, Write};
 use crate::relay::Relay;
-use crate::storage::Log;
+use crate::storage::{Entries, Log};
 use crate::{Id, Payload, Position};
 
 pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
@@ -119,7 +119,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         if self.term >= term {
             if let Some((preceding, current, entry)) = match position {
                 Ok(position) => {
-                    let entries = self.log.into_stream();
+                    let entries = self.log.stream();
                     match self.log.next(position).await {
                         Some((preceding, current, entry)) => {
                             if self.registry.on_success(&member, &preceding, &current, entries).await {
@@ -276,12 +276,12 @@ impl<'a> Registry<'a> {
             .on_failure(missing)
     }
 
-    async fn on_success(
+    async fn on_success<'e>(
         &mut self,
         member: &Id,
         replicated: &Position,
         next: &Position,
-        entries: impl Stream<Item = (Position, Payload)>,
+        entries: Entries<'e>,
     ) -> bool {
         let updated = self
             .records
@@ -292,8 +292,7 @@ impl<'a> Registry<'a> {
             let committed = self.committed;
             tokio::pin! {
                 // TODO: optimize access
-                let entries = entries
-                    .skip_while(|(position, _)| position <= &committed)
+                let entries = Entries::skip(entries, &committed)
                     .take_while(|(position, _)| position <= &replicated);
             }
             while let Some((position, entry)) = entries.next().await {

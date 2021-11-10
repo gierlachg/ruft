@@ -44,8 +44,7 @@ pub(crate) trait Log: Sync {
 
     async fn next(&self, position: Position) -> Option<(Position, Position, Payload)>;
 
-    //noinspection RsSelfConvention
-    fn into_stream(&self) -> Entries
+    fn stream(&self) -> Entries
     where
         Self: Sized,
     {
@@ -82,5 +81,12 @@ impl<'a> Stream for Entries<'a> {
             },
             None => Poll::Ready(None),
         }
+    }
+}
+
+impl<'a> Entries<'a> {
+    pub(crate) fn skip(mut self, position: &Position) -> Self {
+        self.future = Some(Box::pin(self.log.next(*position)));
+        self
     }
 }
