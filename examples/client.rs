@@ -13,28 +13,15 @@ use ruft_client::RuftClient;
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_logger();
 
-    let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse().unwrap()], 5_000)
-        .await
-        .unwrap();
-    match client.write("map", &1u64.to_le_bytes(), "1".as_bytes()).await {
-        Ok(_) => {
-            info!("Successfully stored");
-        }
-        Err(e) => {
-            error!("Failed to store; error = {:?}", e);
-        }
-    }
+    let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse()?], 5_000).await?;
 
-    match client.read("map", &1u64.to_le_bytes()).await {
-        Ok(response) => {
-            info!(
-                "Successfully read: {:?}",
-                response.map(|value| String::from_utf8(value).unwrap())
-            );
-        }
-        Err(e) => {
-            error!("Failed to read; error = {:?}", e);
-        }
+    client.write("map", &1u64.to_le_bytes(), "1".as_bytes()).await?;
+    info!("Successfully stored");
+
+    let value = client.read("map", &1u64.to_le_bytes()).await?;
+    match value.and_then(|value| String::from_utf8(value).ok()) {
+        Some(value) if value == "1" => info!("Successfully read: {:?}", &value),
+        _ => error!("That should not happen!"),
     }
 
     Ok(())
