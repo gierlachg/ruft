@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use futures::future::join_all;
@@ -105,7 +106,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         } else if self.term == term {
             panic!("Double leader detected - term: {}, leader id: {:?}", term, leader);
         } else {
-            self.redirect_client_requests(Some(&leader)).await;
+            self.redirect_client_requests(Some(&leader));
             Some(Transition::follower(term, Some(leader)))
         }
     }
@@ -156,7 +157,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             }
             None
         } else {
-            self.redirect_client_requests(None).await;
+            self.redirect_client_requests(None);
             Some(Transition::follower(term, None))
         }
     }
@@ -170,7 +171,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         } else if self.term == term {
             None
         } else {
-            self.redirect_client_requests(None).await;
+            self.redirect_client_requests(None);
             Some(Transition::follower(term, None))
         }
     }
@@ -179,7 +180,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         if self.term >= term {
             None
         } else {
-            self.redirect_client_requests(None).await;
+            self.redirect_client_requests(None);
             Some(Transition::follower(term, None))
         }
     }
@@ -220,11 +221,9 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         self.cluster.send(&member, message).await;
     }
 
-    async fn redirect_client_requests(&mut self, leader: Option<&Id>) {
+    fn redirect_client_requests(&mut self, leader: Option<&Id>) {
         let leader_address = leader.map(|leader| *self.cluster.endpoint(leader).client_address());
-        self.registry
-            .responders()
-            .for_each(|(position, responder)| responder.respond_with_redirect(leader_address, Some(position)))
+        self.registry.on_leadership_change(leader_address)
     }
 }
 
@@ -323,15 +322,18 @@ impl<'a> Registry<'a> {
             > self.records.len() / 2
     }
 
+    fn on_leadership_change(&mut self, leader_address: Option<SocketAddr>) {
+        self.responders
+            .split_off(0)
+            .into_iter()
+            .for_each(|(position, responder)| responder.respond_with_redirect(leader_address, Some(position)))
+    }
+
     fn nexts<P: Fn(&Position) -> bool>(&self, predicate: P) -> impl Iterator<Item = (&Id, &Position)> {
         self.records
             .iter()
             .filter(move |(_, record)| predicate(record.next()))
             .map(|(id, record)| (id, record.next()))
-    }
-
-    fn responders(&mut self) -> impl Iterator<Item = (Position, Responder)> {
-        self.responders.split_off(0).into_iter()
     }
 
     fn committed(&self) -> &Position {
