@@ -50,8 +50,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     }
 
     pub(super) async fn run(mut self) -> Transition {
-        // TODO:
-        self.log.extend(self.term, vec![Operation::NoOperation.into()]).await;
+        self.log.extend(self.term, vec![Operation::noop().into()]).await;
 
         let mut ticker = tokio::time::interval(self.heartbeat_interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

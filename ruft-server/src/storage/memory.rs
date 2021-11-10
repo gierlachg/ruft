@@ -13,7 +13,7 @@ pub(crate) struct MemoryLog {
 impl MemoryLog {
     pub(crate) fn _init() -> Self {
         let mut entries = BTreeMap::new();
-        entries.insert(Position::initial(), Operation::NoOperation.into());
+        entries.insert(Position::initial(), Operation::noop().into());
 
         MemoryLog { entries }
     }

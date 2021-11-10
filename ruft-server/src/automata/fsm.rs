@@ -60,6 +60,12 @@ pub(crate) enum Operation<'a> {
     MapReadOperation { id: &'a str, key: Payload } = MAP_READ_OPERATION_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
+impl<'a> Operation<'a> {
+    pub(crate) fn noop() -> Self {
+        NoOperation
+    }
+}
+
 // TODO: const ???
 impl<'a> Into<Payload> for Operation<'a> {
     fn into(self) -> Payload {

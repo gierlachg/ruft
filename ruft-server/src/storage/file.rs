@@ -73,9 +73,7 @@ impl FileLog {
             Err(_) => {
                 let mut file = SequentialFile::from(file).await?;
                 let head = Position::initial();
-                // TODO:
-                file.append(vec![(head, Operation::NoOperation.into())].into_iter())
-                    .await?;
+                file.append(vec![(head, Operation::noop().into())].into_iter()).await?;
                 Ok(FileLog {
                     file: Mutex::new(file),
                     head,
