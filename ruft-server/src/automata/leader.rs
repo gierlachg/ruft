@@ -289,7 +289,6 @@ impl<'a> Registry<'a> {
         if updated {
             let committed = self.committed;
             tokio::pin! {
-                // TODO: optimize access
                 let entries = Entries::skip(entries, &committed)
                     .take_while(|(position, _)| position <= &replicated);
             }

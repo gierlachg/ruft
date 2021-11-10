@@ -17,11 +17,11 @@ mod tcp;
 
 #[async_trait]
 pub(crate) trait Cluster {
-    fn members(&self) -> Vec<Id>;
+    fn members(&self) -> Vec<Id>; // TODO: ???
 
     fn endpoint(&self, id: &Id) -> &Endpoint; // TODO: ???
 
-    fn size(&self) -> usize;
+    fn is_majority(&self, n: usize) -> bool;
 
     async fn send(&self, member_id: &Id, message: Message);
 
@@ -59,6 +59,7 @@ impl PhysicalCluster {
 
 #[async_trait]
 impl Cluster for PhysicalCluster {
+    // TODO:
     fn members(&self) -> Vec<Id> {
         self.egresses.keys().map(|id| *id).collect()
     }
@@ -75,8 +76,8 @@ impl Cluster for PhysicalCluster {
         }
     }
 
-    fn size(&self) -> usize {
-        self.egresses.len() + 1
+    fn is_majority(&self, n: usize) -> bool {
+        n > (self.egresses.len() + 1) / 2
     }
 
     async fn send(&self, member_id: &Id, message: Message) {

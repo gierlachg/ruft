@@ -36,13 +36,13 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
             log,
             cluster,
             relay,
-            granted_votes: 0,
+            granted_votes: 1,
             election_timeout,
         }
     }
 
     pub(super) async fn run(mut self) -> Transition {
-        if self.cluster.size() == 1 {
+        if self.cluster.is_majority(self.granted_votes) {
             return Transition::leader(self.term);
         }
 
@@ -126,8 +126,8 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         if self.term >= term {
             if vote_granted {
                 self.granted_votes += 1;
-                if (self.granted_votes + 1) > self.cluster.size() / 2 {
-                    // TODO: cluster size: dedup with replication
+                // TODO: cluster size: dedup with replication
+                if self.cluster.is_majority(self.granted_votes) {
                     Some(Transition::leader(self.term))
                 } else {
                     None
