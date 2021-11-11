@@ -192,7 +192,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                     self.registry.on_client_write_request(position, payload, responder);
                 }
                 _ => {
-                    let position = self.log.extend(self.term, vec![payload.clone()]).await; // TODO: avoid cloning
+                    let position = self.log.extend(self.term, vec![payload.clone()]).await;
                     self.registry.on_client_write_request(position, payload, responder);
                     self.replicate(self.registry.nexts(|p| p == position)).await;
                 }

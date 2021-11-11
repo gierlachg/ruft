@@ -88,11 +88,11 @@ impl Cluster for PhysicalCluster {
     }
 
     async fn broadcast(&self, message: Message) {
-        let message: Bytes = message.into();
+        let bytes: Bytes = message.into();
         let futures = self
             .egresses
             .values()
-            .map(|egress| egress.send(message.clone()))
+            .map(|egress| egress.send(bytes.clone()))
             .collect::<Vec<_>>();
         join_all(futures).await;
     }

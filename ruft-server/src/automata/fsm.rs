@@ -66,7 +66,6 @@ impl<'a> Operation<'a> {
     }
 }
 
-// TODO: const ???
 impl<'a> Into<Payload> for Operation<'a> {
     fn into(self) -> Payload {
         Payload::from(bincode::serialize(&self).expect("Unable to serialize"))
