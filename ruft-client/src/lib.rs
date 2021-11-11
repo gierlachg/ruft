@@ -43,10 +43,7 @@ impl RuftClient {
         let key = Bytes::from(key.to_vec());
         let operation = Operation::map_read(id, key).into();
         let request = Request::read(operation);
-        self.relay
-            .send(request)
-            .await
-            .map(|payload| payload.map(Payload::inner))
+        self.relay.send(request).await.map(|payload| payload.map(Payload::into))
     }
 }
 

@@ -126,8 +126,8 @@ impl<'a> Into<Bytes> for Operation<'a> {
 #[derive(Debug)]
 pub(crate) struct Payload(Bytes);
 
-impl Payload {
-    pub(crate) fn inner(self) -> Vec<u8> {
+impl Into<Vec<u8>> for Payload {
+    fn into(self) -> Vec<u8> {
         self.0.to_vec() // TODO: avoid copying
     }
 }
