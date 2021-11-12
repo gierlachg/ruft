@@ -1,18 +1,18 @@
 use std::num::NonZeroU64;
 use std::time::Duration;
 
+use crate::automata::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::automata::protocol::{Request, Response};
 use crate::automata::Responder;
 use crate::automata::Transition::{self, TERMINATED};
-use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Request;
 use crate::relay::Relay;
 use crate::storage::Log;
 use crate::{Id, Payload, Position};
 
 // TODO: address liveness issues https://decentralizedthoughts.github.io/2020-12-12-raft-liveness-full-omission/
 
-pub(super) struct Follower<'a, L: Log, C: Cluster, R: Relay> {
+pub(super) struct Follower<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> {
     id: Id,
     term: u64,
     log: &'a mut L,
@@ -24,7 +24,7 @@ pub(super) struct Follower<'a, L: Log, C: Cluster, R: Relay> {
     election_timeout: Duration,
 }
 
-impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
+impl<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> Follower<'a, L, C, R> {
     pub(super) fn init(
         id: Id,
         term: u64,
@@ -52,7 +52,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         loop {
             tokio::select! {
                 _ = &mut sleep => {
-                    // safety: +1 > 0
+                    // safety: n + 1 > 0
                     break Transition::candidate(NonZeroU64::new(self.term + 1).unwrap())
                 },
                 message = self.cluster.messages() => match message {

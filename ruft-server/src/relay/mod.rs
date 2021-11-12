@@ -1,33 +1,29 @@
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use log::{error, trace};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::relay::protocol::{Request, Response};
 use crate::relay::tcp::{Connection, Connections};
 use crate::Shutdown;
 
-pub(crate) mod protocol; // TODO: ???
 mod tcp;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
-type Sender = UnboundedSender<(Request, UnboundedSender<Response>)>;
-type Receiver = UnboundedReceiver<(Request, UnboundedSender<Response>)>;
-
 #[async_trait]
-pub(crate) trait Relay {
-    async fn requests(&mut self) -> Option<(Request, UnboundedSender<Response>)>;
+pub(crate) trait Relay<RQ: TryFrom<Bytes> + Send + Debug + 'static, RS: Into<Bytes> + Send + 'static> {
+    async fn requests(&mut self) -> Option<(RQ, UnboundedSender<RS>)>;
 }
 
-pub(crate) struct PhysicalRelay {
+pub(crate) struct PhysicalRelay<RQ: TryFrom<Bytes> + Send + Debug + 'static, RS: Into<Bytes> + Send + 'static> {
     endpoint: SocketAddr,
-    requests: Receiver,
+    requests: UnboundedReceiver<(RQ, UnboundedSender<RS>)>,
 }
 
-impl PhysicalRelay {
+impl<RQ: TryFrom<Bytes> + Debug + Send + 'static, RS: Into<Bytes> + Send + 'static> PhysicalRelay<RQ, RS> {
     pub(crate) async fn init(endpoint: SocketAddr, shutdown: Shutdown) -> Result<Self, Error>
     where
         Self: Sized,
@@ -42,7 +38,11 @@ impl PhysicalRelay {
         })
     }
 
-    async fn listen(mut connections: Connections, requests: Sender, mut shutdown: Shutdown) {
+    async fn listen(
+        mut connections: Connections,
+        requests: UnboundedSender<(RQ, UnboundedSender<RS>)>,
+        mut shutdown: Shutdown,
+    ) {
         loop {
             tokio::select! {
                 result = connections.next() => match result {
@@ -57,15 +57,19 @@ impl PhysicalRelay {
         }
     }
 
-    fn on_connection(mut connection: Connection, requests: Sender, mut shutdown: Shutdown) {
+    fn on_connection(
+        mut connection: Connection,
+        requests: UnboundedSender<(RQ, UnboundedSender<RS>)>,
+        mut shutdown: Shutdown,
+    ) {
         tokio::spawn(async move {
             let (tx, mut rx) = mpsc::unbounded_channel();
             loop {
                 tokio::select! {
                     result = connection.read() => match result {
-                        Some(Ok(bytes)) => match Request::try_from(bytes.freeze()) {
+                        Some(Ok(bytes)) => match RQ::try_from(bytes.freeze()) {
                             Ok(request) => requests.send((request, tx.clone())).expect("This is unexpected!"),
-                            Err(e) => break error!("Parsing error; error = {:?}. Closing {} connection.", e, &connection),
+                            Err(_) => break error!("Parsing error. Closing {} connection.", &connection),
                         }
                         Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &connection),
                         None => break trace!("{} connection closed by peer.", &connection),
@@ -81,13 +85,13 @@ impl PhysicalRelay {
 }
 
 #[async_trait]
-impl Relay for PhysicalRelay {
-    async fn requests(&mut self) -> Option<(Request, UnboundedSender<Response>)> {
+impl<RQ: TryFrom<Bytes> + Debug + Send, RS: Into<Bytes> + Send> Relay<RQ, RS> for PhysicalRelay<RQ, RS> {
+    async fn requests(&mut self) -> Option<(RQ, UnboundedSender<RS>)> {
         self.requests.recv().await
     }
 }
 
-impl Display for PhysicalRelay {
+impl<RQ: TryFrom<Bytes> + Debug + Send, RS: Into<Bytes> + Send> Display for PhysicalRelay<RQ, RS> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}", self.endpoint)
     }

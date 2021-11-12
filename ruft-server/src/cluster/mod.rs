@@ -1,41 +1,39 @@
 use std::collections::{BTreeSet, HashMap};
 use std::error::Error;
 use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::future::join_all;
 
 use crate::cluster::connection::{Egress, Ingress};
-use crate::cluster::protocol::Message;
 use crate::{Endpoint, Id, Shutdown};
 
 mod connection;
-pub(crate) mod protocol; // TODO: ???
 mod tcp;
 
 #[async_trait]
-pub(crate) trait Cluster {
+pub(crate) trait Cluster<M: Into<Bytes> + TryFrom<Bytes> + Send + Debug + 'static> {
     fn members(&self) -> Vec<Id>; // TODO: ???
 
     fn endpoint(&self, id: &Id) -> &Endpoint; // TODO: ???
 
     fn is_majority(&self, n: usize) -> bool;
 
-    async fn send(&self, member_id: &Id, message: Message);
+    async fn send(&self, member_id: &Id, message: M);
 
-    async fn broadcast(&self, message: Message);
+    async fn broadcast(&self, message: M);
 
-    async fn messages(&mut self) -> Option<Message>;
+    async fn messages(&mut self) -> Option<M>;
 }
 
-pub(crate) struct PhysicalCluster {
+pub(crate) struct PhysicalCluster<M: Into<Bytes> + TryFrom<Bytes> + Send + Debug + 'static> {
     egresses: HashMap<Id, Egress>,
-    ingress: Ingress,
+    ingress: Ingress<M>,
 }
 
-impl PhysicalCluster {
+impl<M: Into<Bytes> + TryFrom<Bytes> + Send + Debug + 'static> PhysicalCluster<M> {
     pub(crate) async fn init(
         local_endpoint: Endpoint,
         remote_endpoints: Vec<Endpoint>,
@@ -58,7 +56,7 @@ impl PhysicalCluster {
 }
 
 #[async_trait]
-impl Cluster for PhysicalCluster {
+impl<M: Into<Bytes> + TryFrom<Bytes> + Send + Debug> Cluster<M> for PhysicalCluster<M> {
     // TODO:
     fn members(&self) -> Vec<Id> {
         self.egresses.keys().map(|id| *id).collect()
@@ -80,14 +78,14 @@ impl Cluster for PhysicalCluster {
         n > (self.egresses.len() + 1) / 2
     }
 
-    async fn send(&self, member_id: &Id, message: Message) {
+    async fn send(&self, member_id: &Id, message: M) {
         match self.egresses.get(&member_id) {
             Some(egress) => egress.send(message.into()).await,
             None => panic!("Missing member of id: {:?}", member_id),
         }
     }
 
-    async fn broadcast(&self, message: Message) {
+    async fn broadcast(&self, message: M) {
         let bytes: Bytes = message.into();
         let futures = self
             .egresses
@@ -97,12 +95,12 @@ impl Cluster for PhysicalCluster {
         join_all(futures).await;
     }
 
-    async fn messages(&mut self) -> Option<Message> {
+    async fn messages(&mut self) -> Option<M> {
         self.ingress.next().await
     }
 }
 
-impl Display for PhysicalCluster {
+impl<M: Into<Bytes> + TryFrom<Bytes> + Send + Debug> Display for PhysicalCluster<M> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         let mut endpoints = BTreeSet::new();
         endpoints.insert(self.ingress.to_string());

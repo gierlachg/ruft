@@ -13,7 +13,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use bytes::Bytes;
-use derive_more::Display;
 use log::info;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -66,16 +65,14 @@ pub async fn run(
     Ok(())
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Display, Debug, Serialize, Deserialize)]
-#[display(fmt = "{:?}", _0)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug, Serialize, Deserialize)]
 struct Id(u8);
 
 impl Id {
     const MAX: u8 = u8::MAX;
 }
 
-#[derive(PartialEq, Eq, Clone, Display)]
-#[display(fmt = "{{ id: {}, address: {}, client_address: {} }}", id, address, client_address)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 struct Endpoint {
     id: Id,
     address: SocketAddr,

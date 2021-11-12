@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,7 +8,6 @@ use derive_more::Display;
 use log::{error, trace};
 use tokio::sync::{mpsc, Mutex};
 
-use crate::cluster::protocol::Message;
 use crate::cluster::tcp::{Listener, Reader, Writer};
 use crate::{Endpoint, Shutdown};
 
@@ -15,7 +15,7 @@ use crate::{Endpoint, Shutdown};
 const RECONNECT_INTERVAL_MILLIS: u64 = 100;
 
 #[derive(Display)]
-#[display(fmt = "{}", endpoint)]
+#[display(fmt = "{:?}", endpoint)]
 pub(super) struct Egress {
     endpoint: Endpoint,
     writer: Arc<Mutex<Option<Writer>>>,
@@ -46,10 +46,10 @@ impl Egress {
 
     fn reconnect(endpoint: Endpoint, holder: Arc<Mutex<Option<Writer>>>) {
         tokio::spawn(async move {
-            trace!("Trying reconnect to {}", endpoint);
+            trace!("Trying reconnect to {:?}", endpoint);
             loop {
                 if let Ok(writer) = Writer::connect(endpoint.address()).await {
-                    trace!("Connected {}", endpoint);
+                    trace!("Connected {:?}", endpoint);
                     holder.lock().await.replace(writer);
                     break;
                 }
@@ -64,13 +64,13 @@ impl Egress {
 }
 
 #[derive(Display)]
-#[display(fmt = "{} this", endpoint)]
-pub(super) struct Ingress {
+#[display(fmt = "{:?} this", endpoint)]
+pub(super) struct Ingress<M: TryFrom<Bytes> + Send + Debug + 'static> {
     endpoint: Endpoint,
-    messages: tokio::sync::mpsc::UnboundedReceiver<Message>,
+    messages: tokio::sync::mpsc::UnboundedReceiver<M>,
 }
 
-impl Ingress {
+impl<M: TryFrom<Bytes> + Send + Debug + 'static> Ingress<M> {
     pub(super) async fn bind(endpoint: Endpoint, shutdown: Shutdown) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let listener = Listener::bind(endpoint.address()).await?;
 
@@ -79,7 +79,7 @@ impl Ingress {
         Ok(Ingress { endpoint, messages: rx })
     }
 
-    async fn listen(mut listener: Listener, messages: mpsc::UnboundedSender<Message>, mut shutdown: Shutdown) {
+    async fn listen(mut listener: Listener, messages: mpsc::UnboundedSender<M>, mut shutdown: Shutdown) {
         loop {
             tokio::select! {
                 result = listener.next() => match result {
@@ -91,14 +91,14 @@ impl Ingress {
         }
     }
 
-    fn on_connection(mut reader: Reader, messages: mpsc::UnboundedSender<Message>, mut shutdown: Shutdown) {
+    fn on_connection(mut reader: Reader, messages: mpsc::UnboundedSender<M>, mut shutdown: Shutdown) {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     result = reader.read() => match result {
-                        Some(Ok(bytes)) => match Message::try_from(bytes.freeze()) {
+                        Some(Ok(bytes)) => match M::try_from(bytes.freeze()) {
                             Ok(message) => messages.send(message).expect("This is unexpected!"),
-                            Err(e) => break error!("Parsing error; error = {:?}. Closing {} connection.", e, &reader),
+                            Err(_) => break error!("Parsing error. Closing {} connection.", &reader),
                         },
                         Some(Err(e)) => break error!("Communication error; error = {:?}. Closing {} connection.", e, &reader),
                         None => break trace!("{} connection closed by peer.", &reader),
@@ -109,7 +109,7 @@ impl Ingress {
         });
     }
 
-    pub(super) async fn next(&mut self) -> Option<Message> {
+    pub(super) async fn next(&mut self) -> Option<M> {
         self.messages.recv().await
     }
 

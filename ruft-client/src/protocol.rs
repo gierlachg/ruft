@@ -14,9 +14,6 @@ const READ_REQUEST_ID: u8 = 2;
 const SUCCESS_RESPONSE_ID: u8 = 101;
 const REDIRECT_RESPONSE_ID: u8 = 102;
 
-const MAP_WRITE_OPERATION_ID: u8 = 1;
-const MAP_READ_OPERATION_ID: u8 = 2;
-
 #[derive(Display, Serialize)]
 #[repr(u8)]
 pub(crate) enum Request {
@@ -85,6 +82,9 @@ impl TryFrom<Bytes> for Response {
         bincode::deserialize(bytes.as_ref()).map_err(|e| e.into())
     }
 }
+
+const MAP_WRITE_OPERATION_ID: u8 = 1;
+const MAP_READ_OPERATION_ID: u8 = 2;
 
 #[derive(Display, Serialize)]
 #[repr(u8)]

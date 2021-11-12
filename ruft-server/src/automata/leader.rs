@@ -7,16 +7,17 @@ use futures::future::join_all;
 use tokio_stream::StreamExt;
 
 use crate::automata::fsm::{Operation, FSM};
+use crate::automata::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
+use crate::automata::protocol::Request::{self, Read, Write};
+use crate::automata::protocol::Response;
 use crate::automata::Responder;
 use crate::automata::Transition::{self, TERMINATED};
-use crate::cluster::protocol::Message::{self, AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Request::{self, Read, Write};
 use crate::relay::Relay;
 use crate::storage::{Entries, Log};
 use crate::{Id, Payload, Position};
 
-pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
+pub(super) struct Leader<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> {
     id: Id,
     term: NonZeroU64,
     log: &'a mut L,
@@ -28,7 +29,7 @@ pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
     heartbeat_interval: Duration,
 }
 
-impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
+impl<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> Leader<'a, L, C, R> {
     pub(super) fn init(
         id: Id,
         term: NonZeroU64,

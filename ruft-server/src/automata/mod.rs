@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::num::NonZeroU64;
 use std::time::Duration;
@@ -10,9 +11,9 @@ use crate::automata::candidate::Candidate;
 use crate::automata::follower::Follower;
 use crate::automata::fsm::FSM;
 use crate::automata::leader::Leader;
+use crate::automata::protocol::{Message, Request, Response};
 use crate::automata::Transition::{CANDIDATE, FOLLOWER, LEADER, TERMINATED};
 use crate::cluster::Cluster;
-use crate::relay::protocol::Response;
 use crate::relay::Relay;
 use crate::storage::{Log, State};
 use crate::{Id, Payload, Position};
@@ -21,8 +22,9 @@ mod candidate;
 mod follower;
 mod fsm;
 mod leader;
+mod protocol;
 
-pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
+pub(super) async fn run<S: State, L: Log, C: Cluster<Message>, R: Relay<Request, Response>>(
     id: Id,
     heartbeat_interval: Duration,
     election_timeout: Duration,
