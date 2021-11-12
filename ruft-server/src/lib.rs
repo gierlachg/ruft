@@ -188,6 +188,10 @@ impl Ord for Position {
 struct Payload(Bytes);
 
 impl Payload {
+    fn empty() -> Self {
+        Payload(Bytes::from(vec![]))
+    }
+
     fn from(bytes: Vec<u8>) -> Self {
         Payload(Bytes::from(bytes))
     }

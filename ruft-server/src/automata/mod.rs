@@ -19,7 +19,7 @@ use crate::{Id, Payload, Position};
 
 mod candidate;
 mod follower;
-pub(crate) mod fsm; // TODO:
+mod fsm;
 mod leader;
 
 pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(

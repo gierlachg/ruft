@@ -4,8 +4,8 @@ use bytes::Bytes;
 use derive_more::Display;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::relay::protocol::Operation::{MapReadOperation, MapWriteOperation};
-use crate::relay::protocol::Request::{Read, Write};
+use crate::protocol::Operation::{MapReadOperation, MapWriteOperation};
+use crate::protocol::Request::{Read, Write};
 use crate::relay::Position;
 
 const WRITE_REQUEST_ID: u8 = 1;

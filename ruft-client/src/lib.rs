@@ -7,9 +7,10 @@ use bytes::Bytes;
 use log::info;
 use thiserror::Error;
 
-use crate::relay::protocol::{Operation, Payload, Request};
+use crate::protocol::{Operation, Payload, Request};
 use crate::relay::Relay;
 
+mod protocol;
 mod relay;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");

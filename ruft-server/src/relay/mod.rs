@@ -9,7 +9,7 @@ use crate::relay::protocol::{Request, Response};
 use crate::relay::tcp::{Connection, Connections};
 use crate::Shutdown;
 
-pub(crate) mod protocol;
+pub(crate) mod protocol; // TODO: ???
 mod tcp;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;

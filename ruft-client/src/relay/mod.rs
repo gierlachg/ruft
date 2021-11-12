@@ -5,16 +5,15 @@ use std::time::Duration;
 use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::protocol::{Payload, Request};
 use crate::relay::broker::Broker;
 use crate::relay::connector::Connector;
-use crate::relay::protocol::{Payload, Request};
 use crate::relay::tcp::Connection;
 use crate::relay::State::{CONNECTED, DISCONNECTED, TERMINATED};
 use crate::{Result, RuftClientError};
 
 mod broker;
 mod connector;
-pub(crate) mod protocol; // TODO:
 mod tcp;
 
 type Sender = mpsc::UnboundedSender<(Request, Responder)>;

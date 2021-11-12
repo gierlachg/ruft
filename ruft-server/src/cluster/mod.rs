@@ -12,7 +12,7 @@ use crate::cluster::protocol::Message;
 use crate::{Endpoint, Id, Shutdown};
 
 mod connection;
-pub(crate) mod protocol;
+pub(crate) mod protocol; // TODO: ???
 mod tcp;
 
 #[async_trait]

@@ -11,8 +11,8 @@ use tokio_stream::Stream;
 use crate::storage::file::{FileLog, FileState};
 use crate::{Payload, Position};
 
-pub(crate) mod file;
-pub(crate) mod memory;
+mod file;
+mod memory;
 
 pub(crate) async fn init(directory: impl AsRef<Path>) -> Result<(FileState, FileLog), Box<dyn Error + Send + Sync>> {
     match tokio::fs::metadata(directory.as_ref()).await {

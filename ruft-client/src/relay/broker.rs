@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use crate::relay::protocol::Response::{self, Redirect, Success};
+use crate::protocol::Response::{self, Redirect, Success};
 use crate::relay::tcp::Connection;
 use crate::relay::State::{DISCONNECTED, TERMINATED};
 use crate::relay::{Exchange, Exchanges, Receiver, Sender, State};
