@@ -24,19 +24,14 @@ mod cluster;
 mod relay;
 mod storage;
 
-// TODO: configurable
-const HEARTBEAT_INTERVAL_MILLIS: u64 = 20;
-const ELECTION_TIMEOUT_BASE_MILLIS: u64 = 250;
-
 pub async fn run(
     directory: impl AsRef<Path>,
+    election_timeout: Duration,
+    heartbeat_interval: Duration,
     local: (SocketAddr, SocketAddr),
     remotes: Vec<(SocketAddr, SocketAddr)>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     info!("Initializing Ruft server (version: {})", env!("CARGO_PKG_VERSION"));
-
-    let heartbeat_interval = Duration::from_millis(HEARTBEAT_INTERVAL_MILLIS);
-    let election_timeout = Duration::from_millis(ELECTION_TIMEOUT_BASE_MILLIS);
 
     let (local_endpoint, remote_endpoints) = to_endpoints(local, remotes);
     let shutdown = Shutdown::watch();
@@ -51,8 +46,8 @@ pub async fn run(
 
     automata::run(
         local_endpoint.id(),
-        heartbeat_interval,
         election_timeout,
+        heartbeat_interval,
         state,
         log,
         cluster,

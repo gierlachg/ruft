@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fs;
 use std::net::SocketAddr;
+use std::str::FromStr;
+use std::time::Duration;
 
 use clap::{App, Arg, ArgMatches};
 use log::LevelFilter;
@@ -13,12 +15,28 @@ const LOCAL_CLIENT_ENDPOINT: &str = "local client endpoint";
 const REMOTE_ENDPOINTS: &str = "remote endpoints";
 const REMOTE_CLIENT_ENDPOINTS: &str = "remote client endpoints";
 
+const ELECTION_TIMEOUT: &str = "election timeout";
+const DEFAULT_ELECTION_TIMEOUT: &str = "250";
+
+const HEARTBEAT_INTERVAL: &str = "heartbeat interval";
+const DEFAULT_HEARTBEAT_INTERVAL: &str = "20";
+
 const LOGGING_CONFIGURATION_FILE_NAME: &str = "log4rs.yml";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let arguments = parse_arguments();
     let directory = arguments.value_of(DIRECTORY).unwrap();
+    let election_timeout = arguments
+        .value_of(ELECTION_TIMEOUT)
+        .and_then(|election_timeout| u64::from_str(election_timeout).ok())
+        .map(Duration::from_millis)
+        .unwrap();
+    let heartbeat_interval = arguments
+        .value_of(HEARTBEAT_INTERVAL)
+        .and_then(|heartbeat_interval| u64::from_str(heartbeat_interval).ok())
+        .map(Duration::from_millis)
+        .unwrap();
     let local_endpoint = arguments
         .value_of(LOCAL_ENDPOINT)
         .map(|local_endpoint| parse_address(local_endpoint))
@@ -44,6 +62,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     ruft_server::run(
         directory,
+        election_timeout,
+        heartbeat_interval,
         (local_endpoint, local_client_endpoint),
         remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
     )
@@ -92,6 +112,24 @@ fn parse_arguments() -> ArgMatches<'static> {
                 .alias("rce")
                 .takes_value(true)
                 .help("Comma separated list of remote client endpoints"),
+        )
+        .arg(
+            Arg::with_name(ELECTION_TIMEOUT)
+                .required(false)
+                .default_value(DEFAULT_ELECTION_TIMEOUT)
+                .long("election-timeout")
+                .alias("et")
+                .takes_value(true)
+                .help("Election timeout (in milliseconds)"),
+        )
+        .arg(
+            Arg::with_name(HEARTBEAT_INTERVAL)
+                .required(false)
+                .default_value(DEFAULT_HEARTBEAT_INTERVAL)
+                .long("heartbeat-interval")
+                .alias("hi")
+                .takes_value(true)
+                .help("Heartbeat interval (in milliseconds)"),
         )
         .get_matches()
 }

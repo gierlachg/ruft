@@ -26,8 +26,8 @@ mod protocol;
 
 pub(super) async fn run<S: State, L: Log, C: Cluster<Message>, R: Relay<Request, Response>>(
     id: Id,
-    heartbeat_interval: Duration,
     election_timeout: Duration,
+    heartbeat_interval: Duration,
     mut state: S,
     mut log: L,
     mut cluster: C,

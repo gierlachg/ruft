@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
+use std::time::Duration;
 
 use portpicker::pick_unused_port;
 use rand::Rng;
@@ -111,6 +112,8 @@ fn spawn_node(
     tokio::spawn(async move {
         ruft_server::run(
             EphemeralDirectory::new(),
+            Duration::from_millis(250),
+            Duration::from_millis(20),
             (local_endpoint, local_client_endpoint),
             remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
         )
