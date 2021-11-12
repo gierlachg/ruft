@@ -120,20 +120,17 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             if let Some((preceding, current, entry)) = match position {
                 Ok(position) => {
                     let entries = self.log.stream();
-                    match self.log.next(position).await {
-                        Some((preceding, current, entry)) => {
-                            if self.registry.on_success(&member, &preceding, &current, entries).await {
-                                Some((preceding, current, entry))
-                            } else {
-                                None
-                            }
-                        }
-                        None => {
-                            self.registry
-                                .on_success(&member, &position, &position.next(), entries)
-                                .await;
+                    if let Some((preceding, current, entry)) = self.log.next(position).await {
+                        if self.registry.on_success(&member, &preceding, &current, entries).await {
+                            Some((preceding, current, entry))
+                        } else {
                             None
                         }
+                    } else {
+                        self.registry
+                            .on_success(&member, &position, &position.next(), entries)
+                            .await;
+                        None
                     }
                 }
                 Err(position) => {
