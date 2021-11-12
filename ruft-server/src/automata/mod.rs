@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::num::NonZeroU64;
 use std::time::Duration;
 
 use derive_more::Display;
@@ -32,7 +33,10 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
 ) {
     let mut fsm = FSM::new();
 
-    let mut transition = Transition::follower(state.load().await.unwrap_or(0), None);
+    let mut transition = FOLLOWER {
+        term: state.load().await.unwrap_or(0),
+        leader: None,
+    };
     info!("Starting as {:?}", transition);
     loop {
         transition = match transition {
@@ -45,7 +49,7 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
                     .await
             }
             CANDIDATE { term } => {
-                state.store(term).await;
+                state.store(term.get()).await;
 
                 let election_timeout = election_timeout + Duration::from_millis(rand::thread_rng().gen_range(0..=250));
                 Candidate::init(id, term, &mut log, &mut cluster, &mut relay, election_timeout)
@@ -53,7 +57,7 @@ pub(super) async fn run<S: State, L: Log, C: Cluster, R: Relay>(
                     .await
             }
             LEADER { term } => {
-                state.store(term).await;
+                state.store(term.get()).await;
 
                 Leader::init(
                     id,
@@ -78,23 +82,26 @@ enum Transition {
     #[display(fmt = "FOLLOWER {{ term: {}, leader: {:?} }}", term, leader)]
     FOLLOWER { term: u64, leader: Option<Id> },
     #[display(fmt = "CANDIDATE {{ term: {} }}", term)]
-    CANDIDATE { term: u64 },
+    CANDIDATE { term: NonZeroU64 },
     #[display(fmt = "LEADER {{ term: {} }}", term)]
-    LEADER { term: u64 },
+    LEADER { term: NonZeroU64 },
     #[display(fmt = "TERMINATED")]
     TERMINATED,
 }
 
 impl Transition {
-    fn follower(term: u64, leader: Option<Id>) -> Self {
-        FOLLOWER { term, leader }
+    fn follower(term: NonZeroU64, leader: Option<Id>) -> Self {
+        FOLLOWER {
+            term: term.get(),
+            leader,
+        }
     }
 
-    fn candidate(term: u64) -> Self {
+    fn candidate(term: NonZeroU64) -> Self {
         CANDIDATE { term }
     }
 
-    fn leader(term: u64) -> Self {
+    fn leader(term: NonZeroU64) -> Self {
         LEADER { term }
     }
 }

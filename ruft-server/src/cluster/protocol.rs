@@ -1,9 +1,11 @@
+use std::num::NonZeroU64;
+
 use bytes::Bytes;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
-use crate::cluster::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 use crate::{Id, Payload, Position};
+use crate::cluster::protocol::Message::{AppendRequest, AppendResponse, VoteRequest, VoteResponse};
 
 const APPEND_REQUEST_MESSAGE_ID: u16 = 1;
 const APPEND_RESPONSE_MESSAGE_ID: u16 = 2;
@@ -23,9 +25,9 @@ pub(crate) enum Message {
     )]
     AppendRequest {
         leader: Id,
-        term: u64,
+        term: NonZeroU64,
         preceding: Position,
-        entries_term: u64,
+        entries_term: NonZeroU64,
         entries: Vec<Payload>,
         committed: Position,
     } = APPEND_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
@@ -38,7 +40,7 @@ pub(crate) enum Message {
     )]
     AppendResponse {
         member: Id,
-        term: u64,
+        term: NonZeroU64,
         position: Result<Position, Position>,
     } = APPEND_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
@@ -50,7 +52,7 @@ pub(crate) enum Message {
     )]
     VoteRequest {
         candidate: Id,
-        term: u64,
+        term: NonZeroU64,
         position: Position,
     } = VOTE_REQUEST_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 
@@ -60,15 +62,15 @@ pub(crate) enum Message {
         term,
         vote_granted
     )]
-    VoteResponse { member: Id, term: u64, vote_granted: bool } = VOTE_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
+    VoteResponse { member: Id, term: NonZeroU64, vote_granted: bool } = VOTE_RESPONSE_MESSAGE_ID, // TODO: arbitrary_enum_discriminant not used
 }
 
 impl Message {
     pub(crate) fn append_request(
         leader: Id,
-        term: u64,
+        term: NonZeroU64,
         preceding: Position,
-        entries_term: u64,
+        entries_term: NonZeroU64,
         entries: Vec<Payload>,
         committed: Position,
     ) -> Self {
@@ -82,11 +84,11 @@ impl Message {
         }
     }
 
-    pub(crate) fn append_response(member: Id, term: u64, position: Result<Position, Position>) -> Self {
+    pub(crate) fn append_response(member: Id, term: NonZeroU64, position: Result<Position, Position>) -> Self {
         AppendResponse { member, term, position }
     }
 
-    pub(crate) fn vote_request(candidate: Id, term: u64, position: Position) -> Self {
+    pub(crate) fn vote_request(candidate: Id, term: NonZeroU64, position: Position) -> Self {
         VoteRequest {
             candidate,
             term,
@@ -94,7 +96,7 @@ impl Message {
         }
     }
 
-    pub(crate) fn vote_response(member: Id, term: u64, vote_granted: bool) -> Self {
+    pub(crate) fn vote_response(member: Id, term: NonZeroU64, vote_granted: bool) -> Self {
         VoteResponse {
             member,
             term,

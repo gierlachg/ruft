@@ -1,3 +1,4 @@
+use std::num::NonZeroU64;
 use std::time::Duration;
 
 use crate::automata::Responder;
@@ -51,7 +52,8 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         loop {
             tokio::select! {
                 _ = &mut sleep => {
-                    break Transition::candidate(self.term + 1)
+                    // safety: +1 > 0
+                    break Transition::candidate(NonZeroU64::new(self.term + 1).unwrap())
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => match self.on_message(message).await {
@@ -90,21 +92,25 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
     async fn on_append_request(
         &mut self,
         leader: Id,
-        term: u64,
+        term: NonZeroU64,
         preceding: Position,
-        entries_term: u64,
+        entries_term: NonZeroU64,
         entries: Vec<Payload>,
     ) -> (bool, Option<Transition>) {
-        if self.term > term {
+        if self.term > term.get() {
             self.cluster
-                .send(&leader, Message::append_response(self.id, self.term, Err(preceding)))
+                .send(
+                    &leader,
+                    // safety: leader's term > 1 & n + 1 > 0
+                    Message::append_response(self.id, NonZeroU64::new(self.term).unwrap(), Err(preceding)),
+                )
                 .await;
             (false, None)
-        } else if self.term == term {
+        } else if self.term == term.get() {
             self.leader.replace(leader);
             let result = self.log.insert(&preceding, entries_term, entries).await;
             self.cluster
-                .send(&leader, Message::append_response(self.id, self.term, result))
+                .send(&leader, Message::append_response(self.id, term, result))
                 .await;
             (true, None)
         } else {
@@ -112,35 +118,39 @@ impl<'a, L: Log, C: Cluster, R: Relay> Follower<'a, L, C, R> {
         }
     }
 
-    fn on_append_response(&mut self, term: u64) -> Option<Transition> {
-        if self.term >= term {
+    fn on_append_response(&mut self, term: NonZeroU64) -> Option<Transition> {
+        if self.term >= term.get() {
             None
         } else {
             Some(Transition::follower(term, None))
         }
     }
 
-    async fn on_vote_request(&mut self, candidate: Id, term: u64, position: Position) -> Option<Transition> {
-        if self.term > term {
+    async fn on_vote_request(&mut self, candidate: Id, term: NonZeroU64, position: Position) -> Option<Transition> {
+        if self.term > term.get() {
             self.cluster
-                .send(&candidate, Message::vote_response(self.id, self.term, false))
+                .send(
+                    &candidate,
+                    // safety: n + 1 > 0
+                    Message::vote_response(self.id, NonZeroU64::new(self.term).unwrap(), false),
+                )
                 .await;
             None
-        } else if self.term == term {
+        } else if self.term == term.get() {
             None
         } else {
             // TODO: persist state before sending the response, otherwise double vote possible
             if position >= *self.log.head() {
                 self.cluster
-                    .send(&candidate, Message::vote_response(self.id, self.term, true))
+                    .send(&candidate, Message::vote_response(self.id, term, true))
                     .await;
             }
             Some(Transition::follower(term, None))
         }
     }
 
-    fn on_vote_response(&mut self, term: u64) -> Option<Transition> {
-        if self.term >= term {
+    fn on_vote_response(&mut self, term: NonZeroU64) -> Option<Transition> {
+        if self.term >= term.get() {
             None
         } else {
             Some(Transition::follower(term, None))

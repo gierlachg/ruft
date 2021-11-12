@@ -2,11 +2,13 @@
 #![feature(stmt_expr_attributes)]
 #![feature(arbitrary_enum_discriminant)]
 #![feature(map_entry_replace)]
+#![feature(nonzero_ops)]
 
 use std::cmp::Ordering;
 use std::error::Error;
 use std::hash::Hash;
 use std::net::SocketAddr;
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::time::Duration;
 
@@ -155,11 +157,11 @@ impl Position {
         Position::of(self.0, self.1 + 1)
     }
 
-    fn next_in(&self, term: u64) -> Self {
-        if self.0 == term {
-            Position::of(term, self.1 + 1)
+    fn next_in(&self, term: NonZeroU64) -> Self {
+        if self.0 == term.get() {
+            Position::of(term.get(), self.1 + 1)
         } else {
-            Position::of(term, 0)
+            Position::of(term.get(), 0)
         }
     }
 }

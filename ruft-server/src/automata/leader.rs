@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::num::NonZeroU64;
 use std::time::Duration;
 
 use futures::future::join_all;
@@ -17,7 +18,7 @@ use crate::{Id, Payload, Position};
 
 pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
     id: Id,
-    term: u64,
+    term: NonZeroU64,
     log: &'a mut L,
     cluster: &'a mut C,
     relay: &'a mut R,
@@ -30,14 +31,14 @@ pub(super) struct Leader<'a, L: Log, C: Cluster, R: Relay> {
 impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     pub(super) fn init(
         id: Id,
-        term: u64,
+        term: NonZeroU64,
         log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
         fsm: &'a mut FSM,
         heartbeat_interval: Duration,
     ) -> Self {
-        let registry = Registry::new(cluster.members(), Position::of(term, 0), fsm);
+        let registry = Registry::new(cluster.members(), Position::of(term.get(), 0), fsm);
         Leader {
             id,
             term,
@@ -96,7 +97,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         }
     }
 
-    async fn on_append_request(&mut self, leader: Id, term: u64, preceding: Position) -> Option<Transition> {
+    async fn on_append_request(&mut self, leader: Id, term: NonZeroU64, preceding: Position) -> Option<Transition> {
         if self.term > term {
             self.cluster
                 .send(&leader, Message::append_response(self.id, self.term, Err(preceding)))
@@ -113,14 +114,14 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
     async fn on_append_response(
         &mut self,
         member: Id,
-        term: u64,
+        term: NonZeroU64,
         position: Result<Position, Position>,
     ) -> Option<Transition> {
         if self.term >= term {
             if let Some((preceding, current, entry)) = match position {
-                Ok(position) => {
+                Ok(replicated) => {
                     let entries = self.log.stream();
-                    if let Some((preceding, current, entry)) = self.log.next(position).await {
+                    if let Some((preceding, current, entry)) = self.log.next(replicated).await {
                         if self.registry.on_success(&member, &preceding, &current, entries).await {
                             Some((preceding, current, entry))
                         } else {
@@ -128,14 +129,14 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                         }
                     } else {
                         self.registry
-                            .on_success(&member, &position, &position.next(), entries)
+                            .on_success(&member, &replicated, &replicated.next(), entries)
                             .await;
                         None
                     }
                 }
-                Err(position) => {
-                    if self.registry.on_failure(&member, &position) {
-                        Some(self.log.at(position).await.expect("Missing entry"))
+                Err(missing) => {
+                    if self.registry.on_failure(&member, &missing) {
+                        Some(self.log.at(missing).await.expect("Missing entry"))
                     } else {
                         None
                     }
@@ -145,7 +146,8 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
                     self.id,
                     self.term,
                     preceding,
-                    current.term(),
+                    // safety: initial position is present always present & initial term contains single entry
+                    NonZeroU64::new(current.term()).unwrap(),
                     vec![entry],
                     *self.registry.committed(),
                 );
@@ -158,7 +160,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         }
     }
 
-    async fn on_vote_request(&mut self, candidate: Id, term: u64) -> Option<Transition> {
+    async fn on_vote_request(&mut self, candidate: Id, term: NonZeroU64) -> Option<Transition> {
         if self.term > term {
             self.cluster
                 .send(&candidate, Message::vote_response(self.id, self.term, false))
@@ -172,7 +174,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         }
     }
 
-    async fn on_vote_response(&mut self, term: u64) -> Option<Transition> {
+    async fn on_vote_response(&mut self, term: NonZeroU64) -> Option<Transition> {
         if self.term >= term {
             None
         } else {
@@ -185,7 +187,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
         match request {
             Write { payload, position } => match position {
                 Some(position) if self.log.at(position).await.is_some() => {
-                    assert!(position.term() < self.term);
+                    assert!(position.term() < self.term.get());
                     self.registry.on_client_write_request(position, payload, responder);
                 }
                 _ => {
@@ -211,7 +213,8 @@ impl<'a, L: Log, C: Cluster, R: Relay> Leader<'a, L, C, R> {
             .log
             .at(position)
             .await
-            .map(|(preceding, current, entry)| (preceding, current.term(), vec![entry]))
+            // safety: initial position is present always present & initial term contains single entry
+            .map(|(preceding, current, entry)| (preceding, NonZeroU64::new(current.term()).unwrap(), vec![entry]))
             .unwrap_or((*self.log.head(), self.term, vec![]));
         let message = Message::append_request(self.id, self.term, preceding, term, entries, *self.registry.committed());
         self.cluster.send(&member, message).await;

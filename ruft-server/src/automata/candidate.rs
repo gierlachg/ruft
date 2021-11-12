@@ -1,3 +1,4 @@
+use std::num::NonZeroU64;
 use std::time::Duration;
 
 use crate::automata::Responder;
@@ -11,7 +12,7 @@ use crate::{Id, Position};
 
 pub(super) struct Candidate<'a, L: Log, C: Cluster, R: Relay> {
     id: Id,
-    term: u64,
+    term: NonZeroU64,
     log: &'a mut L,
     cluster: &'a mut C,
     relay: &'a mut R,
@@ -24,7 +25,7 @@ pub(super) struct Candidate<'a, L: Log, C: Cluster, R: Relay> {
 impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
     pub(super) fn init(
         id: Id,
-        term: u64,
+        term: NonZeroU64,
         log: &'a mut L,
         cluster: &'a mut C,
         relay: &'a mut R,
@@ -56,7 +57,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         loop {
             tokio::select! {
                 _ = election_timer.tick() => {
-                    break Transition::candidate(self.term + 1)
+                    break Transition::candidate(self.term.saturating_add(1))
                 },
                 message = self.cluster.messages() => match message {
                     Some(message) => if let Some(state) = self.on_message(message).await {
@@ -90,7 +91,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         }
     }
 
-    async fn on_append_request(&mut self, leader: Id, term: u64, preceding: Position) -> Option<Transition> {
+    async fn on_append_request(&mut self, leader: Id, term: NonZeroU64, preceding: Position) -> Option<Transition> {
         if self.term > term {
             self.cluster
                 .send(&leader, Message::append_response(self.id, self.term, Err(preceding)))
@@ -101,7 +102,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         }
     }
 
-    fn on_append_response(&mut self, term: u64) -> Option<Transition> {
+    fn on_append_response(&mut self, term: NonZeroU64) -> Option<Transition> {
         if self.term >= term {
             None
         } else {
@@ -109,7 +110,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         }
     }
 
-    async fn on_vote_request(&mut self, candidate: Id, term: u64) -> Option<Transition> {
+    async fn on_vote_request(&mut self, candidate: Id, term: NonZeroU64) -> Option<Transition> {
         if self.term > term {
             self.cluster
                 .send(&candidate, Message::vote_response(self.id, self.term, false))
@@ -122,7 +123,7 @@ impl<'a, L: Log, C: Cluster, R: Relay> Candidate<'a, L, C, R> {
         }
     }
 
-    fn on_vote_response(&mut self, term: u64, vote_granted: bool) -> Option<Transition> {
+    fn on_vote_response(&mut self, term: NonZeroU64, vote_granted: bool) -> Option<Transition> {
         if self.term >= term {
             if vote_granted {
                 self.granted_votes += 1;

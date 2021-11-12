@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 use async_trait::async_trait;
 
@@ -28,9 +29,7 @@ impl Log for MemoryLog {
         }
     }
 
-    async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position {
-        assert!(term > 0);
-
+    async fn extend(&mut self, term: NonZeroU64, entries: Vec<Payload>) -> Position {
         let mut head = *self.head();
         let mut next;
         for entry in entries {
@@ -41,9 +40,12 @@ impl Log for MemoryLog {
         head
     }
 
-    async fn insert(&mut self, preceding: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position> {
-        assert!(term > 0);
-
+    async fn insert(
+        &mut self,
+        preceding: &Position,
+        term: NonZeroU64,
+        entries: Vec<Payload>,
+    ) -> Result<Position, Position> {
         if let Some(position) = self
             .entries
             .range(preceding..)
@@ -105,7 +107,10 @@ mod tests {
     async fn when_empty_entries_appended_then_succeeds() {
         let mut storage = MemoryLog::_init();
 
-        assert_eq!(storage.extend(1, vec![]).await, Position::of(0, 0));
+        assert_eq!(
+            storage.extend(NonZeroU64::new(1).unwrap(), vec![]).await,
+            Position::of(0, 0)
+        );
 
         assert_eq!(storage.head(), &Position::of(0, 0));
 
@@ -116,9 +121,18 @@ mod tests {
     async fn when_entries_appended_then_succeeds() {
         let mut storage = MemoryLog::_init();
 
-        assert_eq!(storage.extend(1, entries(1)).await, Position::of(1, 0));
-        assert_eq!(storage.extend(1, entries(2)).await, Position::of(1, 1));
-        assert_eq!(storage.extend(2, entries(3)).await, Position::of(2, 0));
+        assert_eq!(
+            storage.extend(NonZeroU64::new(1).unwrap(), entries(1)).await,
+            Position::of(1, 0)
+        );
+        assert_eq!(
+            storage.extend(NonZeroU64::new(1).unwrap(), entries(2)).await,
+            Position::of(1, 1)
+        );
+        assert_eq!(
+            storage.extend(NonZeroU64::new(2).unwrap(), entries(3)).await,
+            Position::of(2, 0)
+        );
 
         assert_eq!(storage.head(), Position::of(2, 0));
 
@@ -157,15 +171,21 @@ mod tests {
         let mut storage = MemoryLog::_init();
 
         assert_eq!(
-            storage.insert(&Position::of(0, 0), 1, entries(1)).await,
+            storage
+                .insert(&Position::of(0, 0), NonZeroU64::new(1).unwrap(), entries(1))
+                .await,
             Ok(Position::of(1, 0))
         );
         assert_eq!(
-            storage.insert(&Position::of(1, 0), 1, entries(2)).await,
+            storage
+                .insert(&Position::of(1, 0), NonZeroU64::new(1).unwrap(), entries(2))
+                .await,
             Ok(Position::of(1, 1))
         );
         assert_eq!(
-            storage.insert(&Position::of(1, 1), 2, entries(3)).await,
+            storage
+                .insert(&Position::of(1, 1), NonZeroU64::new(2).unwrap(), entries(3))
+                .await,
             Ok(Position::of(2, 0))
         );
 
@@ -206,7 +226,9 @@ mod tests {
         let mut storage = MemoryLog::_init();
 
         assert_eq!(
-            storage.insert(&Position::of(5, 0), 10, entries(1)).await,
+            storage
+                .insert(&Position::of(5, 0), NonZeroU64::new(10).unwrap(), entries(1))
+                .await,
             Err(Position::of(5, 0))
         );
 
@@ -220,9 +242,11 @@ mod tests {
     async fn when_entry_inserted_but_preceding_index_missing_then_fails() {
         let mut storage = MemoryLog::_init();
 
-        storage.extend(5, entries(1)).await;
+        storage.extend(NonZeroU64::new(5).unwrap(), entries(1)).await;
         assert_eq!(
-            storage.insert(&Position::of(5, 5), 5, entries(2)).await,
+            storage
+                .insert(&Position::of(5, 5), NonZeroU64::new(5).unwrap(), entries(2))
+                .await,
             Err(Position::of(5, 1))
         );
 
@@ -237,12 +261,17 @@ mod tests {
         let mut storage = MemoryLog::_init();
 
         storage
-            .extend(5, vec![Payload::from(vec![1]), Payload::from(vec![2])])
+            .extend(
+                NonZeroU64::new(5).unwrap(),
+                vec![Payload::from(vec![1]), Payload::from(vec![2])],
+            )
             .await;
-        storage.extend(10, entries(3)).await;
+        storage.extend(NonZeroU64::new(10).unwrap(), entries(3)).await;
 
         assert_eq!(
-            storage.insert(&Position::of(5, 0), 5, entries(4)).await,
+            storage
+                .insert(&Position::of(5, 0), NonZeroU64::new(5).unwrap(), entries(4))
+                .await,
             Ok(Position::of(5, 1))
         );
 
@@ -264,7 +293,10 @@ mod tests {
     async fn test_next() {
         let mut storage = MemoryLog::_init();
 
-        assert_eq!(storage.extend(10, entries(100)).await, Position::of(10, 0));
+        assert_eq!(
+            storage.extend(NonZeroU64::new(10).unwrap(), entries(100)).await,
+            Position::of(10, 0)
+        );
 
         assert_eq!(
             storage.next(Position::of(0, 0)).await,

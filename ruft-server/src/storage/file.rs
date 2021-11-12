@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::io::SeekFrom;
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
@@ -89,8 +90,8 @@ impl Log for FileLog {
         &self.head
     }
 
-    async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position {
-        assert!(term > 0 && term >= self.head.term());
+    async fn extend(&mut self, term: NonZeroU64, entries: Vec<Payload>) -> Position {
+        assert!(term.get() >= self.head.term());
 
         let mut file = self.file.lock().await;
         file.seek(&Position::terminal()).await.unwrap();
@@ -103,9 +104,12 @@ impl Log for FileLog {
         self.head
     }
 
-    async fn insert(&mut self, preceding: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position> {
-        assert!(term > 0);
-
+    async fn insert(
+        &mut self,
+        preceding: &Position,
+        term: NonZeroU64,
+        entries: Vec<Payload>,
+    ) -> Result<Position, Position> {
         {
             let mut file = self.file.lock().await;
             match file.seek(&preceding.next()).await.unwrap() {
@@ -243,7 +247,10 @@ mod tests {
     async fn when_empty_entries_appended_then_succeeds() {
         let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
-        assert_eq!(log.extend(1, vec![]).await, Position::of(0, 0));
+        assert_eq!(
+            log.extend(NonZeroU64::new(1).unwrap(), vec![]).await,
+            Position::of(0, 0)
+        );
 
         assert_eq!(log.head(), &Position::of(0, 0));
 
@@ -254,9 +261,18 @@ mod tests {
     async fn when_entries_appended_then_succeeds() {
         let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
-        assert_eq!(log.extend(1, entries(1)).await, Position::of(1, 0));
-        assert_eq!(log.extend(1, entries(2)).await, Position::of(1, 1));
-        assert_eq!(log.extend(2, entries(3)).await, Position::of(2, 0));
+        assert_eq!(
+            log.extend(NonZeroU64::new(1).unwrap(), entries(1)).await,
+            Position::of(1, 0)
+        );
+        assert_eq!(
+            log.extend(NonZeroU64::new(1).unwrap(), entries(2)).await,
+            Position::of(1, 1)
+        );
+        assert_eq!(
+            log.extend(NonZeroU64::new(2).unwrap(), entries(3)).await,
+            Position::of(2, 0)
+        );
 
         assert_eq!(log.head(), &Position::of(2, 0));
 
@@ -295,15 +311,18 @@ mod tests {
         let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(
-            log.insert(&Position::of(0, 0), 1, entries(1)).await,
+            log.insert(&Position::of(0, 0), NonZeroU64::new(1).unwrap(), entries(1))
+                .await,
             Ok(Position::of(1, 0))
         );
         assert_eq!(
-            log.insert(&Position::of(1, 0), 1, entries(2)).await,
+            log.insert(&Position::of(1, 0), NonZeroU64::new(1).unwrap(), entries(2))
+                .await,
             Ok(Position::of(1, 1))
         );
         assert_eq!(
-            log.insert(&Position::of(1, 1), 2, entries(3)).await,
+            log.insert(&Position::of(1, 1), NonZeroU64::new(2).unwrap(), entries(3))
+                .await,
             Ok(Position::of(2, 0))
         );
 
@@ -344,7 +363,8 @@ mod tests {
         let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
         assert_eq!(
-            log.insert(&Position::of(5, 0), 10, entries(1)).await,
+            log.insert(&Position::of(5, 0), NonZeroU64::new(10).unwrap(), entries(1))
+                .await,
             Err(Position::of(5, 0))
         );
 
@@ -358,9 +378,10 @@ mod tests {
     async fn when_entry_inserted_but_preceding_index_missing_then_fails() {
         let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
-        log.extend(5, entries(1)).await;
+        log.extend(NonZeroU64::new(5).unwrap(), entries(1)).await;
         assert_eq!(
-            log.insert(&Position::of(5, 5), 5, entries(2)).await,
+            log.insert(&Position::of(5, 5), NonZeroU64::new(5).unwrap(), entries(2))
+                .await,
             Err(Position::of(5, 1))
         );
 
@@ -374,12 +395,16 @@ mod tests {
     async fn when_entry_inserted_in_the_middle_then_subsequent_entries_are_removed() {
         let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
-        log.extend(5, vec![Payload::from(vec![1]), Payload::from(vec![2])])
-            .await;
-        log.extend(10, entries(3)).await;
+        log.extend(
+            NonZeroU64::new(5).unwrap(),
+            vec![Payload::from(vec![1]), Payload::from(vec![2])],
+        )
+        .await;
+        log.extend(NonZeroU64::new(10).unwrap(), entries(3)).await;
 
         assert_eq!(
-            log.insert(&Position::of(5, 0), 5, entries(4)).await,
+            log.insert(&Position::of(5, 0), NonZeroU64::new(5).unwrap(), entries(4))
+                .await,
             Ok(Position::of(5, 1))
         );
 
@@ -401,7 +426,10 @@ mod tests {
     async fn test_next() {
         let mut log = FileLog::init(EphemeralDirectory::new()).await.unwrap();
 
-        assert_eq!(log.extend(10, entries(100)).await, Position::of(10, 0));
+        assert_eq!(
+            log.extend(NonZeroU64::new(10).unwrap(), entries(100)).await,
+            Position::of(10, 0)
+        );
 
         assert_eq!(
             log.next(Position::of(0, 0)).await,

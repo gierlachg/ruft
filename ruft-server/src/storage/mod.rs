@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::future::Future;
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -36,9 +37,14 @@ pub(crate) trait State {
 pub(crate) trait Log: Sync {
     fn head(&self) -> &Position;
 
-    async fn extend(&mut self, term: u64, entries: Vec<Payload>) -> Position;
+    async fn extend(&mut self, term: NonZeroU64, entries: Vec<Payload>) -> Position;
 
-    async fn insert(&mut self, preceding: &Position, term: u64, entries: Vec<Payload>) -> Result<Position, Position>;
+    async fn insert(
+        &mut self,
+        preceding: &Position,
+        term: NonZeroU64,
+        entries: Vec<Payload>,
+    ) -> Result<Position, Position>;
 
     async fn at(&self, position: Position) -> Option<(Position, Position, Payload)>;
 
