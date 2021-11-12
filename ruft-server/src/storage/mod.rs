@@ -14,7 +14,7 @@ use crate::{Payload, Position};
 mod file;
 mod memory;
 
-pub(crate) async fn init(directory: impl AsRef<Path>) -> Result<(FileState, FileLog), Box<dyn Error + Send + Sync>> {
+pub(crate) async fn init(directory: impl AsRef<Path>) -> Result<(impl State, impl Log), Box<dyn Error + Send + Sync>> {
     match tokio::fs::metadata(directory.as_ref()).await {
         Ok(metadata) if metadata.is_dir() => {} // TODO: check none or both files are there ?
         Ok(_) => panic!("Path is not a directory"),
