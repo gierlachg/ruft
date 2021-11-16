@@ -18,8 +18,7 @@ const DEFAULT_ELECTION_TIMEOUT: &str = "250";
 const HEARTBEAT_INTERVAL: &str = "heartbeat interval";
 const DEFAULT_HEARTBEAT_INTERVAL: &str = "20";
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let arguments = parse_arguments();
     let directory = arguments.value_of(DIRECTORY).unwrap();
     let election_timeout = arguments
@@ -55,14 +54,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     init_tracing();
 
-    ruft_server::run(
-        directory,
-        election_timeout,
-        heartbeat_interval,
-        (local_endpoint, local_client_endpoint),
-        remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
-    )
-    .await
+    tokio_uring::start(async {
+        ruft_server::run(
+            directory,
+            election_timeout,
+            heartbeat_interval,
+            (local_endpoint, local_client_endpoint),
+            remote_endpoints.into_iter().zip(remote_client_endpoints).collect(),
+        )
+        .await
+    })
 }
 
 fn parse_arguments() -> ArgMatches<'static> {
