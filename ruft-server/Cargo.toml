@@ -22,8 +22,8 @@ bytes = "1"
 serde = { version = "1", features = ["serde_derive"] }
 bincode = "1"
 
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.6", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "signal"] }
+tokio-util = { version = "0.6", features = ["net", "codec"] }
 tokio-stream = "0.1"
 futures = "0.3"
 
