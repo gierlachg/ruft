@@ -363,7 +363,7 @@ impl Record {
 
     fn on_failure(&mut self, missing: &Position) -> bool {
         if missing <= &self.replicated {
-            log::error!(
+            tracing::error!(
                 "Missing ({:?}) should already have been replicated ({:?})",
                 &missing,
                 &self.replicated

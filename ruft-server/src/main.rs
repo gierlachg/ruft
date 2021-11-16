@@ -1,13 +1,10 @@
 use std::error::Error;
-use std::fs;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
 use clap::{App, Arg, ArgMatches};
-use log::LevelFilter;
-use log4rs::append::console::ConsoleAppender;
-use log4rs::config::{Appender, Config, Root};
+use tracing::Level;
 
 const DIRECTORY: &str = "directory";
 const LOCAL_ENDPOINT: &str = "local endpoint";
@@ -20,8 +17,6 @@ const DEFAULT_ELECTION_TIMEOUT: &str = "250";
 
 const HEARTBEAT_INTERVAL: &str = "heartbeat interval";
 const DEFAULT_HEARTBEAT_INTERVAL: &str = "20";
-
-const LOGGING_CONFIGURATION_FILE_NAME: &str = "log4rs.yml";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -58,7 +53,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .map(|remote_endpoint| parse_address(remote_endpoint))
         .collect::<Vec<_>>();
 
-    init_logging();
+    init_tracing();
 
     ruft_server::run(
         directory,
@@ -138,16 +133,7 @@ fn parse_address(address: &str) -> SocketAddr {
     address.parse().expect(&format!("Unable to parse '{}'", address))
 }
 
-fn init_logging() {
-    match fs::metadata(LOGGING_CONFIGURATION_FILE_NAME) {
-        Ok(_) => log4rs::init_file(LOGGING_CONFIGURATION_FILE_NAME, Default::default()).unwrap(),
-        Err(_) => {
-            let _ = log4rs::init_config(
-                Config::builder()
-                    .appender(Appender::builder().build("stdout", Box::new(ConsoleAppender::builder().build())))
-                    .build(Root::builder().appender("stdout").build(LevelFilter::Info))
-                    .unwrap(),
-            );
-        }
-    }
+fn init_tracing() {
+    // install global collector configured based on RUST_LOG env var.
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 }

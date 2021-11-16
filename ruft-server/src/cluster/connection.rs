@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use derive_more::Display;
-use log::{error, trace};
 use tokio::sync::{mpsc, Mutex};
+use tracing::{error, trace};
 
 use crate::cluster::tcp::{Listener, Reader, Writer};
 use crate::{Endpoint, Shutdown};

@@ -13,8 +13,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use bytes::Bytes;
-use log::info;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tracing::info;
 
 use crate::cluster::PhysicalCluster;
 use crate::relay::PhysicalRelay;

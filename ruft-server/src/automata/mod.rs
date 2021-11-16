@@ -4,8 +4,8 @@ use std::num::NonZeroU64;
 use std::time::Duration;
 
 use derive_more::Display;
-use log::info;
 use rand::Rng;
+use tracing::info;
 
 use crate::automata::candidate::Candidate;
 use crate::automata::follower::Follower;

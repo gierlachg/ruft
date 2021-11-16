@@ -1,17 +1,13 @@
 use std::error::Error;
 
-use log::{error, info, LevelFilter};
-use log4rs::{
-    append::console::ConsoleAppender,
-    config::{Appender, Config, Root},
-};
 use tokio;
+use tracing::{error, info, Level};
 
 use ruft_client::RuftClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    init_logger();
+    init_tracing();
 
     let mut client = RuftClient::new(vec!["127.0.0.1:8080".parse()?], 5_000).await?;
 
@@ -27,12 +23,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }
 
-fn init_logger() {
-    let _ = log4rs::init_config(
-        Config::builder()
-            .appender(Appender::builder().build("stdout", Box::new(ConsoleAppender::builder().build())))
-            .build(Root::builder().appender("stdout").build(LevelFilter::Info))
-            .unwrap(),
-    )
-    .unwrap();
+fn init_tracing() {
+    // install global collector configured based on RUST_LOG env var.
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 }

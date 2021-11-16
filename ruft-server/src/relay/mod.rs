@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use log::{error, trace};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tracing::{error, trace};
 
 use crate::relay::tcp::{Connection, Connections};
 use crate::Shutdown;

@@ -4,8 +4,8 @@
 use std::net::SocketAddr;
 
 use bytes::Bytes;
-use log::info;
 use thiserror::Error;
+use tracing::info;
 
 use crate::protocol::{Operation, Payload, Request};
 use crate::relay::Relay;
