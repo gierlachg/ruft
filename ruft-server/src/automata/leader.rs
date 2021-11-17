@@ -299,8 +299,8 @@ impl<'a> Registry<'a> {
                 }
 
                 let result = self.fsm.apply(&entry);
-                if let Some((_, responder)) = match self.responders.back() {
-                    Some((p, _)) if p == position => self.responders.pop_back(),
+                if let Some((_, responder)) = match self.responders.front() {
+                    Some((p, _)) if p == position => self.responders.pop_front(),
                     _ => None,
                 } {
                     responder.respond_with_success(result);
