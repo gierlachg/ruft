@@ -92,14 +92,14 @@ impl Log for FileLog {
     async fn extend(&mut self, term: NonZeroU64, entries: Vec<Payload>) -> Position {
         assert!(term.get() >= self.head.term());
 
-        let mut file = self.file.lock().await;
-        file.seek(&Position::terminal()).await.unwrap();
-        let entries = entries.into_iter().map(|entry| {
-            self.head = self.head.next_in(term);
-            (self.head, entry)
-        });
-        file.append(entries).await.unwrap();
-
+        if !entries.is_empty() {
+            let entries = entries.into_iter().map(|entry| {
+                self.head = self.head.next_in(term);
+                (self.head, entry)
+            });
+            let mut file = self.file.lock().await;
+            file.append(entries).await.unwrap();
+        }
         self.head
     }
 
@@ -109,7 +109,7 @@ impl Log for FileLog {
         term: NonZeroU64,
         entries: Vec<Payload>,
     ) -> Result<Position, Position> {
-        {
+        if &self.head > preceding {
             let mut file = self.file.lock().await;
             match file.seek(&preceding.next()).await.unwrap() {
                 (Some(position), _) => self.head = position,
@@ -150,7 +150,7 @@ impl Log for FileLog {
     }
 }
 
-struct SequentialFile(tokio::fs::File);
+struct SequentialFile(tokio::fs::File, u64, u64);
 
 impl SequentialFile {
     async fn from(path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
@@ -160,15 +160,16 @@ impl SequentialFile {
             .read(true)
             .open(path)
             .await?;
-        Ok(SequentialFile(file))
+        let offset = 0;
+        let size = file.metadata().await?.len();
+        Ok(SequentialFile(file, offset, size))
     }
 
     async fn seek(&mut self, position: &Position) -> Result<(Option<Position>, Option<Position>), std::io::Error> {
         self.0.seek(SeekFrom::Start(0)).await?;
-        let mut offset = 0;
-        let size = self.0.metadata().await?.len();
+        self.1 = 0;
         let mut preceding = None;
-        while offset < size {
+        while self.1 < self.2 {
             let current = Position::of(self.0.read_u64_le().await?, self.0.read_u64_le().await?);
             if &current >= position {
                 self.0.seek(SeekFrom::Current(-(8 + 8))).await?;
@@ -178,7 +179,7 @@ impl SequentialFile {
                 self.0
                     .seek(SeekFrom::Current(i64::try_from(len).expect("Unable to convert")))
                     .await?;
-                offset += 8 + 8 + 8 + len;
+                self.1 += 8 + 8 + 8 + len;
                 preceding.replace(current);
             }
         }
@@ -190,16 +191,23 @@ impl SequentialFile {
         let len = self.0.read_u64_le().await?;
         let mut bytes = vec![0u8; usize::try_from(len).expect("Unable to convert")];
         self.0.read(&mut bytes).await?;
+        self.1 += 8 + 8 + 8 + len;
         Ok(Payload::from(bytes))
     }
 
     async fn append(&mut self, entries: impl Iterator<Item = (Position, Payload)>) -> Result<(), std::io::Error> {
+        if self.1 < self.2 {
+            self.0.seek(SeekFrom::End(0)).await?;
+            self.1 = self.2;
+        }
         let mut modified = false;
         for (position, entry) in entries {
             self.0.write_u64_le(position.term()).await?;
             self.0.write_u64_le(position.index()).await?;
             self.0.write_u64_le(entry.len()).await?;
             self.0.write_all(entry.0.as_ref()).await?;
+            self.1 += 8 + 8 + 8 + entry.len();
+            self.2 = self.1;
             modified = true;
         }
         if modified {
@@ -210,10 +218,9 @@ impl SequentialFile {
     }
 
     async fn truncate(&mut self) -> Result<(), std::io::Error> {
-        let offset = self.0.stream_position().await?;
-        let size = self.0.metadata().await?.len();
-        if offset < size {
-            self.0.set_len(offset).await?;
+        if self.1 < self.2 {
+            self.0.set_len(self.1).await?;
+            self.2 = self.1;
             self.0.sync_all().await
         } else {
             Ok(())
