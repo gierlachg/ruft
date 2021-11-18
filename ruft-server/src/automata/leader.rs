@@ -258,7 +258,7 @@ impl<'a> Registry<'a> {
                 .iter()
                 .rev()
                 .position(|(p, _)| p < &position)
-                .map(|p| p + 1)
+                .map(|index| self.responders.len() - index)
                 .unwrap_or(0);
             self.responders.insert(index, (position, responder));
         }
