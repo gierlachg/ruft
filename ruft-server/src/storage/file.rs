@@ -198,9 +198,7 @@ impl SequentialFile {
         for (position, entry) in entries {
             self.0.write_u64_le(position.term()).await?;
             self.0.write_u64_le(position.index()).await?;
-            self.0
-                .write_u64_le(u64::try_from(entry.0.len()).expect("Unable to convert"))
-                .await?;
+            self.0.write_u64_le(entry.len()).await?;
             self.0.write_all(entry.0.as_ref()).await?;
             modified = true;
         }

@@ -187,6 +187,10 @@ impl Payload {
     fn from(bytes: Vec<u8>) -> Self {
         Payload(Bytes::from(bytes))
     }
+    
+    fn len(&self) -> u64 {
+        u64::try_from(self.0.len()).expect("Unable to convert")
+    }
 }
 
 impl Serialize for Payload {
