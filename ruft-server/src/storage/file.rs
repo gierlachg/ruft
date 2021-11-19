@@ -170,16 +170,21 @@ impl SequentialFile {
         self.1 = 0;
         let mut preceding = None;
         while self.1 < self.2 {
-            let current = Position::of(self.0.read_u64_le().await?, self.0.read_u64_le().await?);
+            let mut bytes = [0u8; 24];
+            self.0.read(&mut bytes).await?;
+
+            let term = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+            let index = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+            let current = Position::of(term, index);
             if &current >= position {
-                self.0.seek(SeekFrom::Current(-(8 + 8))).await?;
+                self.0.seek(SeekFrom::Current(-(8 + 8 + 8))).await?;
                 return Ok((preceding, Some(current)));
             } else {
-                let len = self.0.read_u64_le().await?;
+                let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
                 self.0
                     .seek(SeekFrom::Current(i64::try_from(len).expect("Unable to convert")))
                     .await?;
-                self.1 += 8 + 8 + 8 + len;
+                self.1 += u64::try_from(bytes.len()).expect("Unable to convert") + len;
                 preceding.replace(current);
             }
         }
@@ -187,11 +192,15 @@ impl SequentialFile {
     }
 
     async fn load(&mut self) -> Result<Payload, std::io::Error> {
-        self.0.seek(SeekFrom::Current(8 + 8)).await?;
-        let len = self.0.read_u64_le().await?;
+        let mut bytes = [0u8; 24];
+        self.0.read(&mut bytes).await?;
+        self.1 += u64::try_from(bytes.len()).expect("Unable to convert");
+
+        let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
         let mut bytes = vec![0u8; usize::try_from(len).expect("Unable to convert")];
         self.0.read(&mut bytes).await?;
-        self.1 += 8 + 8 + 8 + len;
+        self.1 += u64::try_from(bytes.len()).expect("Unable to convert");
+
         Ok(Payload::from(bytes))
     }
 
@@ -200,31 +209,27 @@ impl SequentialFile {
             self.0.seek(SeekFrom::End(0)).await?;
             self.1 = self.2;
         }
-        let mut modified = false;
         for (position, entry) in entries {
-            self.0.write_u64_le(position.term()).await?;
-            self.0.write_u64_le(position.index()).await?;
-            self.0.write_u64_le(entry.len()).await?;
-            self.0.write_all(entry.0.as_ref()).await?;
-            self.1 += 8 + 8 + 8 + entry.len();
+            let mut bytes = Vec::with_capacity(8 + 8 + 8 + usize::try_from(entry.len()).expect("Unable to convert"));
+            bytes.extend_from_slice(&position.term().to_le_bytes());
+            bytes.extend_from_slice(&position.index().to_le_bytes());
+            bytes.extend_from_slice(&entry.len().to_le_bytes());
+            bytes.extend_from_slice(entry.0.as_ref());
+            self.0.write_all(&bytes).await?;
+            self.1 += u64::try_from(bytes.len()).expect("Unable to convert");
             self.2 = self.1;
-            modified = true;
         }
-        if modified {
-            self.0.sync_all().await
-        } else {
-            Ok(())
-        }
+        self.0.sync_all().await?;
+        Ok(())
     }
 
     async fn truncate(&mut self) -> Result<(), std::io::Error> {
         if self.1 < self.2 {
             self.0.set_len(self.1).await?;
+            self.0.sync_all().await?;
             self.2 = self.1;
-            self.0.sync_all().await
-        } else {
-            Ok(())
         }
+        Ok(())
     }
 }
 
