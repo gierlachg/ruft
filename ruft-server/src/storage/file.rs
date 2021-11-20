@@ -1,13 +1,17 @@
 use std::error::Error;
+use std::future::Future;
 use std::io::SeekFrom;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+use tokio_stream::Stream;
 
-use crate::storage::{Log, State};
+use crate::storage::{Entries, Log, State};
 use crate::{Payload, Position};
 
 pub(crate) struct FileState {
@@ -148,6 +152,42 @@ impl Log for FileLog {
             _ => None,
         }
     }
+
+    fn entries(&self, from: Position) -> Box<dyn Entries + '_> {
+        Box::new(FileEntries {
+            log: self,
+            future: Some(Box::pin(self.next(from))),
+        })
+    }
+}
+
+struct FileEntries<'a> {
+    log: &'a FileLog,
+    future: Option<Pin<Box<(dyn Future<Output = Option<(Position, Position, Payload)>> + Send + 'a)>>>,
+}
+
+impl<'a> Stream for FileEntries<'a> {
+    type Item = (Position, Payload);
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.future.as_mut() {
+            Some(future) => match future.as_mut().poll(cx) {
+                Poll::Ready(result) => match result {
+                    Some((_, position, entry)) => {
+                        let future = Box::pin(self.log.next(position));
+                        self.future.replace(future);
+                        Poll::Ready(Some((position, entry)))
+                    }
+                    None => {
+                        self.future.take();
+                        Poll::Ready(None)
+                    }
+                },
+                Poll::Pending => Poll::Pending,
+            },
+            None => Poll::Ready(None),
+        }
+    }
 }
 
 struct SequentialFile(tokio::fs::File, u64, u64);
@@ -175,12 +215,13 @@ impl SequentialFile {
 
             let term = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
             let index = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+            let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
+
             let current = Position::of(term, index);
             if &current >= position {
                 self.0.seek(SeekFrom::Current(-(8 + 8 + 8))).await?;
                 return Ok((preceding, Some(current)));
             } else {
-                let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
                 self.0
                     .seek(SeekFrom::Current(i64::try_from(len).expect("Unable to convert")))
                     .await?;
@@ -236,6 +277,7 @@ impl SequentialFile {
 #[cfg(test)]
 mod tests {
     use rand::Rng;
+    use tokio_stream::StreamExt;
 
     use super::*;
 
@@ -454,6 +496,33 @@ mod tests {
         );
         assert_eq!(log.next(Position::of(10, 0)).await, None);
         assert_eq!(log.next(Position::of(100, 10)).await, None);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_entries() {
+        let mut storage = FileLog::init(EphemeralDirectory::new()).await.unwrap();
+
+        storage.extend(NonZeroU64::new(1).unwrap(), entries(1)).await;
+        storage.extend(NonZeroU64::new(1).unwrap(), entries(2)).await;
+        storage.extend(NonZeroU64::new(10).unwrap(), entries(10)).await;
+
+        let entries = Pin::from(storage.entries(Position::of(0, 0))).collect::<Vec<_>>().await;
+        assert_eq!(
+            entries,
+            vec![
+                (Position::of(1, 0), bytes(1)),
+                (Position::of(1, 1), bytes(2)),
+                (Position::of(10, 0), bytes(10))
+            ]
+        );
+
+        let entries = Pin::from(storage.entries(Position::of(1, 1))).collect::<Vec<_>>().await;
+        assert_eq!(entries, vec![(Position::of(10, 0), bytes(10))]);
+
+        let entries = Pin::from(storage.entries(Position::of(100, 100)))
+            .collect::<Vec<_>>()
+            .await;
+        assert!(entries.is_empty());
     }
 
     fn entries(value: u8) -> Vec<Payload> {

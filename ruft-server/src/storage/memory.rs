@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 
 use async_trait::async_trait;
 
-use crate::storage::Log;
+use crate::storage::{Entries, Log};
 use crate::{Payload, Position};
 
 pub(crate) struct MemoryLog {
@@ -66,27 +66,39 @@ impl Log for MemoryLog {
         }
     }
 
-    async fn at(&self, position: Position) -> Option<(Position, Position, Payload)> {
+    async fn at(&self, needle: Position) -> Option<(Position, Position, Payload)> {
         self.entries
-            .range(..position)
+            .range(..needle)
             .next_back()
             .map(|(position, _)| position)
-            .zip(self.entries.get(&position))
-            .map(|(p, e)| (*p, position, e.clone()))
+            .zip(self.entries.get(&needle))
+            .map(|(position, entry)| (*position, needle, entry.clone()))
     }
 
-    async fn next(&self, position: Position) -> Option<(Position, Position, Payload)> {
+    async fn next(&self, needle: Position) -> Option<(Position, Position, Payload)> {
         self.entries
-            .range(position..)
+            .range(needle.next()..)
             .into_iter()
-            .skip_while(|(p, _)| p == &position)
             .next()
-            .map(|(p, e)| (position, *p, e.clone()))
+            .map(|(position, entry)| (needle, *position, entry.clone()))
+    }
+
+    fn entries(&self, from: Position) -> Box<dyn Entries + '_> {
+        let iterator = self
+            .entries
+            .range(from.next()..)
+            .into_iter()
+            .map(|(position, entry)| (position.clone(), entry.clone()));
+        Box::new(tokio_stream::iter(iterator))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+
+    use tokio_stream::StreamExt;
+
     use super::*;
 
     #[tokio::test(flavor = "current_thread")]
@@ -309,6 +321,33 @@ mod tests {
             storage.next(Position::of(5, 5)).await,
             Some((Position::of(5, 5), Position::of(10, 0), bytes(100)))
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_entries() {
+        let mut storage = MemoryLog::_init();
+
+        storage.extend(NonZeroU64::new(1).unwrap(), entries(1)).await;
+        storage.extend(NonZeroU64::new(1).unwrap(), entries(2)).await;
+        storage.extend(NonZeroU64::new(10).unwrap(), entries(10)).await;
+
+        let entries = Pin::from(storage.entries(Position::of(0, 0))).collect::<Vec<_>>().await;
+        assert_eq!(
+            entries,
+            vec![
+                (Position::of(1, 0), bytes(1)),
+                (Position::of(1, 1), bytes(2)),
+                (Position::of(10, 0), bytes(10))
+            ]
+        );
+
+        let entries = Pin::from(storage.entries(Position::of(1, 1))).collect::<Vec<_>>().await;
+        assert_eq!(entries, vec![(Position::of(10, 0), bytes(10))]);
+
+        let entries = Pin::from(storage.entries(Position::of(100, 100)))
+            .collect::<Vec<_>>()
+            .await;
+        assert!(entries.is_empty());
     }
 
     fn entries(value: u8) -> Vec<Payload> {

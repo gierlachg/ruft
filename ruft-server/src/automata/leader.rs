@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::num::NonZeroU64;
+use std::pin::Pin;
 use std::time::Duration;
 
 use futures::future::join_all;
@@ -121,7 +122,7 @@ impl<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> Leader<'a, L,
         if self.term >= term {
             if let Some((preceding, current, entry)) = match position {
                 Ok(replicated) => {
-                    let entries = self.log.stream();
+                    let entries = self.log.entries(*self.registry.committed());
                     if let Some((preceding, current, entry)) = self.log.next(replicated).await {
                         if self.registry.on_success(&member, &preceding, &current, entries).await {
                             Some((preceding, current, entry))
@@ -275,12 +276,12 @@ impl<'a> Registry<'a> {
             .on_failure(missing)
     }
 
-    async fn on_success<'e>(
+    async fn on_success(
         &mut self,
         member: &Id,
         replicated: &Position,
         next: &Position,
-        entries: Entries<'e>,
+        entries: Box<dyn Entries + '_>,
     ) -> bool {
         let updated = self
             .records
@@ -288,11 +289,7 @@ impl<'a> Registry<'a> {
             .expect("Missing member entry")
             .on_success(replicated, next);
         if updated {
-            let committed = self.committed;
-            tokio::pin! {
-                let entries = Entries::skip(entries, &committed)
-                    .take_while(|(position, _)| position <= &replicated);
-            }
+            let mut entries = Pin::from(entries).take_while(|(position, _)| position <= &replicated);
             while let Some((position, entry)) = entries.next().await {
                 if !self.replicated_on_majority(&position) {
                     break;

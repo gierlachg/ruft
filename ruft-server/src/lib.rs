@@ -3,6 +3,7 @@
 #![feature(arbitrary_enum_discriminant)]
 #![feature(map_entry_replace)]
 #![feature(nonzero_ops)]
+#![feature(trait_alias)]
 
 use std::cmp::Ordering;
 use std::error::Error;
@@ -187,7 +188,7 @@ impl Payload {
     fn from(bytes: Vec<u8>) -> Self {
         Payload(Bytes::from(bytes))
     }
-    
+
     fn len(&self) -> u64 {
         u64::try_from(self.0.len()).expect("Unable to convert")
     }

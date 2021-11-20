@@ -1,9 +1,6 @@
 use std::error::Error;
-use std::future::Future;
 use std::num::NonZeroU64;
 use std::path::Path;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use tokio_stream::Stream;
@@ -50,49 +47,7 @@ pub(crate) trait Log: Sync {
 
     async fn next(&self, position: Position) -> Option<(Position, Position, Payload)>;
 
-    fn stream(&self) -> Entries
-    where
-        Self: Sized,
-    {
-        Entries {
-            log: self,
-            future: Some(Box::pin(self.next(Position::initial()))),
-        }
-    }
+    fn entries(&self, from: Position) -> Box<dyn Entries + '_>;
 }
 
-pub(crate) struct Entries<'a> {
-    log: &'a dyn Log,
-    future: Option<Pin<Box<(dyn Future<Output = Option<(Position, Position, Payload)>> + Send + 'a)>>>,
-}
-
-impl<'a> Stream for Entries<'a> {
-    type Item = (Position, Payload);
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.future.as_mut() {
-            Some(future) => match future.as_mut().poll(cx) {
-                Poll::Ready(result) => match result {
-                    Some((_, position, entry)) => {
-                        let future = Box::pin(self.log.next(position));
-                        self.future.replace(future);
-                        Poll::Ready(Some((position, entry)))
-                    }
-                    None => {
-                        self.future.take();
-                        Poll::Ready(None)
-                    }
-                },
-                Poll::Pending => Poll::Pending,
-            },
-            None => Poll::Ready(None),
-        }
-    }
-}
-
-impl<'a> Entries<'a> {
-    pub(crate) fn skip(mut self, position: &Position) -> Self {
-        self.future = Some(Box::pin(self.log.next(*position)));
-        self
-    }
-}
+pub(crate) trait Entries = Stream<Item = (Position, Payload)> + Send;
