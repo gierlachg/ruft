@@ -47,9 +47,8 @@ impl Log for MemoryLog {
     ) -> Result<Position, Position> {
         if let Some(position) = self
             .entries
-            .range(preceding..)
+            .range(preceding.next()..)
             .into_iter()
-            .skip_while(|(position, _)| position == preceding)
             .next()
             .map(|(position, _)| *position)
         {
@@ -66,7 +65,7 @@ impl Log for MemoryLog {
         }
     }
 
-    async fn at(&self, needle: Position) -> Option<(Position, Position, Payload)> {
+    fn at(&self, needle: Position) -> Option<(Position, Position, Payload)> {
         self.entries
             .range(..needle)
             .next_back()
@@ -75,7 +74,7 @@ impl Log for MemoryLog {
             .map(|(position, entry)| (*position, needle, entry.clone()))
     }
 
-    async fn next(&self, needle: Position) -> Option<(Position, Position, Payload)> {
+    fn next(&self, needle: Position) -> Option<(Position, Position, Payload)> {
         self.entries
             .range(needle.next()..)
             .into_iter()
@@ -107,11 +106,11 @@ mod tests {
 
         assert_eq!(storage.head(), &Position::of(0, 0));
 
-        assert_eq!(storage.at(Position::of(0, 0)).await, None);
-        assert_eq!(storage.at(Position::of(0, 1)).await, None);
-        assert_eq!(storage.at(Position::of(1, 0)).await, None);
+        assert_eq!(storage.at(Position::of(0, 0)), None);
+        assert_eq!(storage.at(Position::of(0, 1)), None);
+        assert_eq!(storage.at(Position::of(1, 0)), None);
 
-        assert_eq!(storage.next(Position::of(0, 0)).await, None);
+        assert_eq!(storage.next(Position::of(0, 0)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -125,7 +124,7 @@ mod tests {
 
         assert_eq!(storage.head(), &Position::of(0, 0));
 
-        assert_eq!(storage.at(Position::of(1, 0)).await, None);
+        assert_eq!(storage.at(Position::of(1, 0)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -148,31 +147,31 @@ mod tests {
         assert_eq!(storage.head(), Position::of(2, 0));
 
         assert_eq!(
-            storage.at(Position::of(1, 0)).await,
+            storage.at(Position::of(1, 0)),
             Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            storage.at(Position::of(1, 1)).await,
+            storage.at(Position::of(1, 1)),
             Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
-        assert_eq!(storage.at(Position::of(1, 2)).await, None);
+        assert_eq!(storage.at(Position::of(1, 2)), None);
         assert_eq!(
-            storage.at(Position::of(2, 0)).await,
+            storage.at(Position::of(2, 0)),
             Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
-        assert_eq!(storage.at(Position::of(2, 1)).await, None);
-        assert_eq!(storage.at(Position::of(3, 0)).await, None);
+        assert_eq!(storage.at(Position::of(2, 1)), None);
+        assert_eq!(storage.at(Position::of(3, 0)), None);
 
         assert_eq!(
-            storage.next(Position::of(0, 0)).await,
+            storage.next(Position::of(0, 0)),
             Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            storage.next(Position::of(1, 0)).await,
+            storage.next(Position::of(1, 0)),
             Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
         assert_eq!(
-            storage.next(Position::of(1, 1)).await,
+            storage.next(Position::of(1, 1)),
             Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
     }
@@ -203,31 +202,31 @@ mod tests {
         assert_eq!(storage.head(), &Position::of(2, 0));
 
         assert_eq!(
-            storage.at(Position::of(1, 0)).await,
+            storage.at(Position::of(1, 0)),
             Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            storage.at(Position::of(1, 1)).await,
+            storage.at(Position::of(1, 1)),
             Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
-        assert_eq!(storage.at(Position::of(1, 2)).await, None);
+        assert_eq!(storage.at(Position::of(1, 2)), None);
         assert_eq!(
-            storage.at(Position::of(2, 0)).await,
+            storage.at(Position::of(2, 0)),
             Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
-        assert_eq!(storage.at(Position::of(2, 1)).await, None);
-        assert_eq!(storage.at(Position::of(3, 0)).await, None);
+        assert_eq!(storage.at(Position::of(2, 1)), None);
+        assert_eq!(storage.at(Position::of(3, 0)), None);
 
         assert_eq!(
-            storage.next(Position::of(0, 0)).await,
+            storage.next(Position::of(0, 0)),
             Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            storage.next(Position::of(1, 0)).await,
+            storage.next(Position::of(1, 0)),
             Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
         assert_eq!(
-            storage.next(Position::of(1, 1)).await,
+            storage.next(Position::of(1, 1)),
             Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
     }
@@ -245,8 +244,8 @@ mod tests {
 
         assert_eq!(storage.head(), &Position::of(0, 0));
 
-        assert_eq!(storage.at(Position::of(5, 0)).await, None);
-        assert_eq!(storage.at(Position::of(5, 1)).await, None);
+        assert_eq!(storage.at(Position::of(5, 0)), None);
+        assert_eq!(storage.at(Position::of(5, 1)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -263,8 +262,8 @@ mod tests {
 
         assert_eq!(storage.head(), &Position::of(5, 0));
 
-        assert_eq!(storage.at(Position::of(5, 1)).await, None);
-        assert_eq!(storage.at(Position::of(5, 6)).await, None);
+        assert_eq!(storage.at(Position::of(5, 1)), None);
+        assert_eq!(storage.at(Position::of(5, 6)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -289,15 +288,15 @@ mod tests {
         assert_eq!(storage.head(), &Position::of(5, 1));
 
         assert_eq!(
-            storage.at(Position::of(5, 0)).await,
+            storage.at(Position::of(5, 0)),
             Some((Position::of(0, 0), Position::of(5, 0), bytes(1)))
         );
         assert_eq!(
-            storage.at(Position::of(5, 1)).await,
+            storage.at(Position::of(5, 1)),
             Some((Position::of(5, 0), Position::of(5, 1), bytes(4)))
         );
-        assert_eq!(storage.at(Position::of(5, 2)).await, None);
-        assert_eq!(storage.at(Position::of(10, 0)).await, None);
+        assert_eq!(storage.at(Position::of(5, 2)), None);
+        assert_eq!(storage.at(Position::of(10, 0)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -310,15 +309,15 @@ mod tests {
         );
 
         assert_eq!(
-            storage.next(Position::of(0, 0)).await,
+            storage.next(Position::of(0, 0)),
             Some((Position::of(0, 0), Position::of(10, 0), bytes(100)))
         );
         assert_eq!(
-            storage.next(Position::of(0, 100)).await,
+            storage.next(Position::of(0, 100)),
             Some((Position::of(0, 100), Position::of(10, 0), bytes(100)))
         );
         assert_eq!(
-            storage.next(Position::of(5, 5)).await,
+            storage.next(Position::of(5, 5)),
             Some((Position::of(5, 5), Position::of(10, 0), bytes(100)))
         );
     }
@@ -342,6 +341,9 @@ mod tests {
         );
 
         let entries = Pin::from(storage.entries(Position::of(1, 1))).collect::<Vec<_>>().await;
+        assert_eq!(entries, vec![(Position::of(10, 0), bytes(10))]);
+
+        let entries = Pin::from(storage.entries(Position::of(5, 5))).collect::<Vec<_>>().await;
         assert_eq!(entries, vec![(Position::of(10, 0), bytes(10))]);
 
         let entries = Pin::from(storage.entries(Position::of(100, 100)))

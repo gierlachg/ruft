@@ -43,9 +43,9 @@ pub(crate) trait Log: Sync {
         entries: Vec<Payload>,
     ) -> Result<Position, Position>;
 
-    async fn at(&self, position: Position) -> Option<(Position, Position, Payload)>;
+    fn at(&self, position: Position) -> Option<(Position, Position, Payload)>;
 
-    async fn next(&self, position: Position) -> Option<(Position, Position, Payload)>;
+    fn next(&self, position: Position) -> Option<(Position, Position, Payload)>;
 
     fn entries(&self, from: Position) -> Box<dyn Entries + '_>;
 }

@@ -1,15 +1,12 @@
+use std::collections::BTreeMap;
 use std::error::Error;
-use std::future::Future;
 use std::io::SeekFrom;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tokio_stream::Stream;
 
 use crate::storage::{Entries, Log, State};
 use crate::{Payload, Position};
@@ -58,7 +55,7 @@ impl State for FileState {
 
 pub(crate) struct FileLog {
     file: Mutex<SequentialFile>,
-    head: Position,
+    entries: BTreeMap<Position, (u64, Payload)>,
 }
 
 impl FileLog {
@@ -67,20 +64,33 @@ impl FileLog {
         match tokio::fs::metadata(file.as_path()).await {
             Ok(_) => {
                 let mut file = SequentialFile::from(file).await?;
-                let (head, _) = file.seek(&Position::terminal()).await?;
+
+                let mut entries = BTreeMap::new();
+                let mut offset = 0;
+                while offset < file.len() {
+                    let (position, len, entry) = file.load().await?;
+                    entries.insert(position, (offset, entry));
+                    offset += len;
+                }
+
                 Ok(FileLog {
                     file: Mutex::new(file),
-                    // safety: log is not empty
-                    head: head.unwrap(),
+                    entries,
                 })
             }
             Err(_) => {
+                let position = Position::initial();
+                let entry = Payload::empty();
+
                 let mut file = SequentialFile::from(file).await?;
-                let head = Position::initial();
-                file.append(vec![(head, Payload::empty())].into_iter()).await?;
+                file.append((&position, &entry)).await?;
+
+                let mut entries = BTreeMap::new();
+                entries.insert(position, (0, entry));
+
                 Ok(FileLog {
                     file: Mutex::new(file),
-                    head,
+                    entries,
                 })
             }
         }
@@ -90,21 +100,30 @@ impl FileLog {
 #[async_trait]
 impl Log for FileLog {
     fn head(&self) -> &Position {
-        &self.head
+        match self.entries.iter().next_back() {
+            Some((position, _)) => position,
+            None => unreachable!("{:?}", self.entries),
+        }
     }
 
     async fn extend(&mut self, term: NonZeroU64, entries: Vec<Payload>) -> Position {
-        assert!(term.get() >= self.head.term());
+        assert!(
+            term.get() >= self.head().term(),
+            "{} - {}",
+            term.get(),
+            self.head().term()
+        );
 
         if !entries.is_empty() {
-            let entries = entries.into_iter().map(|entry| {
-                self.head = self.head.next_in(term);
-                (self.head, entry)
-            });
             let mut file = self.file.lock().await;
-            file.append(entries).await.unwrap();
+            let mut position = *self.head();
+            for entry in entries {
+                position = position.next_in(term);
+                let offset = file.append((&position, &entry)).await.unwrap();
+                self.entries.insert(position, (offset, entry));
+            }
         }
-        self.head
+        *self.head()
     }
 
     async fn insert(
@@ -113,84 +132,56 @@ impl Log for FileLog {
         term: NonZeroU64,
         entries: Vec<Payload>,
     ) -> Result<Position, Position> {
-        if &self.head > preceding {
+        if let Some((position, offset)) = self
+            .entries
+            .range(preceding.next()..)
+            .into_iter()
+            .next()
+            .map(|(position, (offset, _))| (*position, *offset))
+        {
             let mut file = self.file.lock().await;
-            match file.seek(&preceding.next()).await.unwrap() {
-                (Some(position), _) => self.head = position,
-                _ => panic!("Missing initial position"),
-            }
-            file.truncate().await.unwrap();
+            file.truncate(offset).await.unwrap();
+            self.entries.split_off(&position);
         }
 
-        if &self.head == preceding {
+        let head = self.head();
+        if head == preceding {
             Ok(self.extend(term, entries).await)
-        } else if self.head.term() == preceding.term() {
-            Err(self.head.next())
+        } else if head.term() == preceding.term() {
+            Err(head.next())
         } else {
             Err(*preceding)
         }
     }
 
-    async fn at(&self, position: Position) -> Option<(Position, Position, Payload)> {
-        let mut file = self.file.lock().await;
-        match file.seek(&position).await.unwrap() {
-            (Some(preceding), Some(current)) if &current == position => {
-                let entry = file.load().await.unwrap();
-                Some((preceding, position, entry))
-            }
-            _ => None,
-        }
+    fn at(&self, needle: Position) -> Option<(Position, Position, Payload)> {
+        self.entries
+            .range(..needle)
+            .next_back()
+            .map(|(position, _)| position)
+            .zip(self.entries.get(&needle))
+            .map(|(position, (_, entry))| (*position, needle, entry.clone()))
     }
 
-    async fn next(&self, position: Position) -> Option<(Position, Position, Payload)> {
-        let mut file = self.file.lock().await;
-        match file.seek(&position.next()).await.unwrap() {
-            (_, Some(next)) => {
-                let entry = file.load().await.unwrap();
-                Some((position, next, entry))
-            }
-            _ => None,
-        }
+    fn next(&self, needle: Position) -> Option<(Position, Position, Payload)> {
+        self.entries
+            .range(needle.next()..)
+            .into_iter()
+            .next()
+            .map(|(position, (_, entry))| (needle, *position, entry.clone()))
     }
 
     fn entries(&self, from: Position) -> Box<dyn Entries + '_> {
-        Box::new(FileEntries {
-            log: self,
-            future: Some(Box::pin(self.next(from))),
-        })
+        let iterator = self
+            .entries
+            .range(from.next()..)
+            .into_iter()
+            .map(|(position, (_, entry))| (position.clone(), entry.clone()));
+        Box::new(tokio_stream::iter(iterator))
     }
 }
 
-struct FileEntries<'a> {
-    log: &'a FileLog,
-    future: Option<Pin<Box<(dyn Future<Output = Option<(Position, Position, Payload)>> + Send + 'a)>>>,
-}
-
-impl<'a> Stream for FileEntries<'a> {
-    type Item = (Position, Payload);
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.future.as_mut() {
-            Some(future) => match future.as_mut().poll(cx) {
-                Poll::Ready(result) => match result {
-                    Some((_, position, entry)) => {
-                        let future = Box::pin(self.log.next(position));
-                        self.future.replace(future);
-                        Poll::Ready(Some((position, entry)))
-                    }
-                    None => {
-                        self.future.take();
-                        Poll::Ready(None)
-                    }
-                },
-                Poll::Pending => Poll::Pending,
-            },
-            None => Poll::Ready(None),
-        }
-    }
-}
-
-struct SequentialFile(tokio::fs::File, u64, u64);
+struct SequentialFile(tokio::fs::File, u64);
 
 impl SequentialFile {
     async fn from(path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
@@ -200,82 +191,58 @@ impl SequentialFile {
             .read(true)
             .open(path)
             .await?;
-        let offset = 0;
         let size = file.metadata().await?.len();
-        Ok(SequentialFile(file, offset, size))
+        Ok(SequentialFile(file, size))
     }
 
-    async fn seek(&mut self, position: &Position) -> Result<(Option<Position>, Option<Position>), std::io::Error> {
-        self.0.seek(SeekFrom::Start(0)).await?;
-        self.1 = 0;
-        let mut preceding = None;
-        while self.1 < self.2 {
-            let mut bytes = [0u8; 24];
-            self.0.read(&mut bytes).await?;
-
-            let term = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
-            let index = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
-            let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
-
-            let current = Position::of(term, index);
-            if &current >= position {
-                self.0.seek(SeekFrom::Current(-(8 + 8 + 8))).await?;
-                return Ok((preceding, Some(current)));
-            } else {
-                self.0
-                    .seek(SeekFrom::Current(i64::try_from(len).expect("Unable to convert")))
-                    .await?;
-                self.1 += u64::try_from(bytes.len()).expect("Unable to convert") + len;
-                preceding.replace(current);
-            }
-        }
-        Ok((preceding, None))
+    async fn append(&mut self, entry: (&Position, &Payload)) -> Result<u64, std::io::Error> {
+        let offset = self.1;
+        let mut bytes = Vec::with_capacity(8 + 8 + 8 + usize::try_from(entry.1.len()).expect("Unable to convert"));
+        bytes.extend_from_slice(&entry.0.term().to_le_bytes());
+        bytes.extend_from_slice(&entry.0.index().to_le_bytes());
+        bytes.extend_from_slice(&entry.1.len().to_le_bytes());
+        bytes.extend_from_slice(entry.1 .0.as_ref());
+        self.0.write_all(&bytes).await?;
+        self.0.sync_all().await?; // TODO: batch sync
+        self.1 += u64::try_from(bytes.len()).expect("Unable to convert");
+        Ok(offset)
     }
 
-    async fn load(&mut self) -> Result<Payload, std::io::Error> {
+    async fn load(&mut self) -> Result<(Position, u64, Payload), std::io::Error> {
         let mut bytes = [0u8; 24];
         self.0.read(&mut bytes).await?;
-        self.1 += u64::try_from(bytes.len()).expect("Unable to convert");
 
+        let term = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+        let index = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
         let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
+
         let mut bytes = vec![0u8; usize::try_from(len).expect("Unable to convert")];
         self.0.read(&mut bytes).await?;
-        self.1 += u64::try_from(bytes.len()).expect("Unable to convert");
 
-        Ok(Payload::from(bytes))
+        Ok((
+            Position::of(term, index),
+            8 + 8 + 8 + u64::try_from(bytes.len()).expect("Unable to convert"),
+            Payload::from(bytes),
+        ))
     }
 
-    async fn append(&mut self, entries: impl Iterator<Item = (Position, Payload)>) -> Result<(), std::io::Error> {
-        if self.1 < self.2 {
-            self.0.seek(SeekFrom::End(0)).await?;
-            self.1 = self.2;
-        }
-        for (position, entry) in entries {
-            let mut bytes = Vec::with_capacity(8 + 8 + 8 + usize::try_from(entry.len()).expect("Unable to convert"));
-            bytes.extend_from_slice(&position.term().to_le_bytes());
-            bytes.extend_from_slice(&position.index().to_le_bytes());
-            bytes.extend_from_slice(&entry.len().to_le_bytes());
-            bytes.extend_from_slice(entry.0.as_ref());
-            self.0.write_all(&bytes).await?;
-            self.1 += u64::try_from(bytes.len()).expect("Unable to convert");
-            self.2 = self.1;
-        }
+    async fn truncate(&mut self, len: u64) -> Result<(), std::io::Error> {
+        self.0.set_len(len).await?;
         self.0.sync_all().await?;
+        self.0.seek(SeekFrom::End(0)).await?;
+        self.1 = len;
         Ok(())
     }
 
-    async fn truncate(&mut self) -> Result<(), std::io::Error> {
-        if self.1 < self.2 {
-            self.0.set_len(self.1).await?;
-            self.0.sync_all().await?;
-            self.2 = self.1;
-        }
-        Ok(())
+    fn len(&self) -> u64 {
+        self.1
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+
     use rand::Rng;
     use tokio_stream::StreamExt;
 
@@ -287,11 +254,11 @@ mod tests {
 
         assert_eq!(log.head(), &Position::of(0, 0));
 
-        assert_eq!(log.at(Position::of(0, 0)).await, None);
-        assert_eq!(log.at(Position::of(0, 1)).await, None);
-        assert_eq!(log.at(Position::of(1, 0)).await, None);
+        assert_eq!(log.at(Position::of(0, 0)), None);
+        assert_eq!(log.at(Position::of(0, 1)), None);
+        assert_eq!(log.at(Position::of(1, 0)), None);
 
-        assert_eq!(log.next(Position::of(0, 0)).await, None);
+        assert_eq!(log.next(Position::of(0, 0)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -305,7 +272,7 @@ mod tests {
 
         assert_eq!(log.head(), &Position::of(0, 0));
 
-        assert_eq!(log.at(Position::of(1, 0)).await, None);
+        assert_eq!(log.at(Position::of(1, 0)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -328,31 +295,31 @@ mod tests {
         assert_eq!(log.head(), &Position::of(2, 0));
 
         assert_eq!(
-            log.at(Position::of(1, 0)).await,
+            log.at(Position::of(1, 0)),
             Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            log.at(Position::of(1, 1)).await,
+            log.at(Position::of(1, 1)),
             Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
-        assert_eq!(log.at(Position::of(1, 2)).await, None);
+        assert_eq!(log.at(Position::of(1, 2)), None);
         assert_eq!(
-            log.at(Position::of(2, 0)).await,
+            log.at(Position::of(2, 0)),
             Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
-        assert_eq!(log.at(Position::of(2, 1)).await, None);
-        assert_eq!(log.at(Position::of(3, 0)).await, None);
+        assert_eq!(log.at(Position::of(2, 1)), None);
+        assert_eq!(log.at(Position::of(3, 0)), None);
 
         assert_eq!(
-            log.next(Position::of(0, 0)).await,
+            log.next(Position::of(0, 0)),
             Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            log.next(Position::of(1, 0)).await,
+            log.next(Position::of(1, 0)),
             Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
         assert_eq!(
-            log.next(Position::of(1, 1)).await,
+            log.next(Position::of(1, 1)),
             Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
     }
@@ -380,31 +347,31 @@ mod tests {
         assert_eq!(log.head(), &Position::of(2, 0));
 
         assert_eq!(
-            log.at(Position::of(1, 0)).await,
+            log.at(Position::of(1, 0)),
             Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            log.at(Position::of(1, 1)).await,
+            log.at(Position::of(1, 1)),
             Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
-        assert_eq!(log.at(Position::of(1, 2)).await, None);
+        assert_eq!(log.at(Position::of(1, 2)), None);
         assert_eq!(
-            log.at(Position::of(2, 0)).await,
+            log.at(Position::of(2, 0)),
             Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
-        assert_eq!(log.at(Position::of(2, 1)).await, None);
-        assert_eq!(log.at(Position::of(3, 0)).await, None);
+        assert_eq!(log.at(Position::of(2, 1)), None);
+        assert_eq!(log.at(Position::of(3, 0)), None);
 
         assert_eq!(
-            log.next(Position::of(0, 0)).await,
+            log.next(Position::of(0, 0)),
             Some((Position::of(0, 0), Position::of(1, 0), bytes(1)))
         );
         assert_eq!(
-            log.next(Position::of(1, 0)).await,
+            log.next(Position::of(1, 0)),
             Some((Position::of(1, 0), Position::of(1, 1), bytes(2)))
         );
         assert_eq!(
-            log.next(Position::of(1, 1)).await,
+            log.next(Position::of(1, 1)),
             Some((Position::of(1, 1), Position::of(2, 0), bytes(3)))
         );
     }
@@ -421,8 +388,8 @@ mod tests {
 
         assert_eq!(log.head(), &Position::of(0, 0));
 
-        assert_eq!(log.at(Position::of(5, 0)).await, None);
-        assert_eq!(log.at(Position::of(5, 1)).await, None);
+        assert_eq!(log.at(Position::of(5, 0)), None);
+        assert_eq!(log.at(Position::of(5, 1)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -438,8 +405,8 @@ mod tests {
 
         assert_eq!(log.head(), &Position::of(5, 0));
 
-        assert_eq!(log.at(Position::of(5, 1)).await, None);
-        assert_eq!(log.at(Position::of(5, 6)).await, None);
+        assert_eq!(log.at(Position::of(5, 1)), None);
+        assert_eq!(log.at(Position::of(5, 6)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -462,15 +429,15 @@ mod tests {
         assert_eq!(log.head(), &Position::of(5, 1));
 
         assert_eq!(
-            log.at(Position::of(5, 0)).await,
+            log.at(Position::of(5, 0)),
             Some((Position::of(0, 0), Position::of(5, 0), bytes(1)))
         );
         assert_eq!(
-            log.at(Position::of(5, 1)).await,
+            log.at(Position::of(5, 1)),
             Some((Position::of(5, 0), Position::of(5, 1), bytes(4)))
         );
-        assert_eq!(log.at(Position::of(5, 2)).await, None);
-        assert_eq!(log.at(Position::of(10, 0)).await, None);
+        assert_eq!(log.at(Position::of(5, 2)), None);
+        assert_eq!(log.at(Position::of(10, 0)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -483,19 +450,19 @@ mod tests {
         );
 
         assert_eq!(
-            log.next(Position::of(0, 0)).await,
+            log.next(Position::of(0, 0)),
             Some((Position::of(0, 0), Position::of(10, 0), bytes(100)))
         );
         assert_eq!(
-            log.next(Position::of(0, 100)).await,
+            log.next(Position::of(0, 100)),
             Some((Position::of(0, 100), Position::of(10, 0), bytes(100)))
         );
         assert_eq!(
-            log.next(Position::of(5, 5)).await,
+            log.next(Position::of(5, 5)),
             Some((Position::of(5, 5), Position::of(10, 0), bytes(100)))
         );
-        assert_eq!(log.next(Position::of(10, 0)).await, None);
-        assert_eq!(log.next(Position::of(100, 10)).await, None);
+        assert_eq!(log.next(Position::of(10, 0)), None);
+        assert_eq!(log.next(Position::of(100, 10)), None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -517,6 +484,9 @@ mod tests {
         );
 
         let entries = Pin::from(storage.entries(Position::of(1, 1))).collect::<Vec<_>>().await;
+        assert_eq!(entries, vec![(Position::of(10, 0), bytes(10))]);
+
+        let entries = Pin::from(storage.entries(Position::of(5, 5))).collect::<Vec<_>>().await;
         assert_eq!(entries, vec![(Position::of(10, 0), bytes(10))]);
 
         let entries = Pin::from(storage.entries(Position::of(100, 100)))

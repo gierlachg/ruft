@@ -123,7 +123,7 @@ impl<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> Leader<'a, L,
             if let Some((preceding, current, entry)) = match position {
                 Ok(replicated) => {
                     let entries = self.log.entries(*self.registry.committed());
-                    if let Some((preceding, current, entry)) = self.log.next(replicated).await {
+                    if let Some((preceding, current, entry)) = self.log.next(replicated) {
                         if self.registry.on_success(&member, &preceding, &current, entries).await {
                             Some((preceding, current, entry))
                         } else {
@@ -138,7 +138,7 @@ impl<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> Leader<'a, L,
                 }
                 Err(missing) => {
                     if self.registry.on_failure(&member, &missing) {
-                        Some(self.log.at(missing).await.expect("Missing entry"))
+                        Some(self.log.at(missing).expect("Missing entry"))
                     } else {
                         None
                     }
@@ -188,7 +188,7 @@ impl<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> Leader<'a, L,
     async fn on_client_request(&mut self, request: Request, responder: Responder) {
         match request {
             Write { payload, position } => match position {
-                Some(position) if self.log.at(position).await.is_some() => {
+                Some(position) if self.log.at(position).is_some() => {
                     assert!(position.term() < self.term.get());
                     self.registry.on_client_write_request(position, payload, responder);
                 }
@@ -214,7 +214,6 @@ impl<'a, L: Log, C: Cluster<Message>, R: Relay<Request, Response>> Leader<'a, L,
         let (preceding, term, entries) = self
             .log
             .at(position)
-            .await
             // safety: initial position is present always present & initial term contains single entry
             .map(|(preceding, current, entry)| (preceding, NonZeroU64::new(current.term()).unwrap(), vec![entry]))
             .unwrap_or((*self.log.head(), self.term, vec![]));

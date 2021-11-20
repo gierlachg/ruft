@@ -130,10 +130,6 @@ impl Position {
         Position(0, 0)
     }
 
-    fn terminal() -> Self {
-        Position(u64::MAX, u64::MAX)
-    }
-
     fn of(term: u64, index: u64) -> Self {
         Position(term, index)
     }
