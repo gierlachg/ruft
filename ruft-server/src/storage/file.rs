@@ -1,12 +1,19 @@
 use std::collections::BTreeMap;
-use std::error::Error;
-use std::io::SeekFrom;
+use std::io::{Error, SeekFrom};
+use std::mem::size_of;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use async_trait::async_trait;
+use bytes::Buf;
+use futures::StreamExt;
+use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+use tokio_stream::Stream;
+use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 
 use crate::storage::{Entries, Log, State};
 use crate::{Payload, Position};
@@ -59,18 +66,17 @@ pub(crate) struct FileLog {
 }
 
 impl FileLog {
-    pub(super) async fn init(directory: impl AsRef<Path>) -> Result<Self, Box<dyn Error + Send + Sync>> {
+    pub(super) async fn init(directory: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let file = directory.as_ref().join(Path::new("log"));
         match tokio::fs::metadata(file.as_path()).await {
             Ok(_) => {
-                let mut file = SequentialFile::from(file).await?;
+                let file = SequentialFile::from(file).await?;
 
                 let mut entries = BTreeMap::new();
-                let mut offset = 0;
-                while offset < file.len() {
-                    let (position, len, entry) = file.load().await?;
+                let mut file_entries = file.entries().await?;
+                while let Some(result) = file_entries.next().await {
+                    let (position, offset, entry) = result?;
                     entries.insert(position, (offset, entry));
-                    offset += len;
                 }
 
                 Ok(FileLog {
@@ -184,7 +190,7 @@ impl Log for FileLog {
 struct SequentialFile(tokio::fs::File, u64);
 
 impl SequentialFile {
-    async fn from(path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
+    async fn from(path: impl AsRef<Path>) -> Result<Self, Error> {
         let file = tokio::fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -195,12 +201,14 @@ impl SequentialFile {
         Ok(SequentialFile(file, size))
     }
 
-    async fn append(&mut self, entry: (&Position, &Payload)) -> Result<u64, std::io::Error> {
+    async fn append(&mut self, entry: (&Position, &Payload)) -> Result<u64, Error> {
         let offset = self.1;
         let mut bytes = Vec::with_capacity(8 + 8 + 8 + usize::try_from(entry.1.len()).expect("Unable to convert"));
+        bytes.extend_from_slice(
+            &(u64::try_from(size_of::<u64>()).expect("Unable to convert") * 2 + &entry.1.len()).to_le_bytes(),
+        );
         bytes.extend_from_slice(&entry.0.term().to_le_bytes());
         bytes.extend_from_slice(&entry.0.index().to_le_bytes());
-        bytes.extend_from_slice(&entry.1.len().to_le_bytes());
         bytes.extend_from_slice(entry.1 .0.as_ref());
         self.0.write_all(&bytes).await?;
         self.0.sync_all().await?; // TODO: batch sync
@@ -208,34 +216,55 @@ impl SequentialFile {
         Ok(offset)
     }
 
-    async fn load(&mut self) -> Result<(Position, u64, Payload), std::io::Error> {
-        let mut bytes = [0u8; 24];
-        self.0.read(&mut bytes).await?;
-
-        let term = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
-        let index = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
-        let len = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
-
-        let mut bytes = vec![0u8; usize::try_from(len).expect("Unable to convert")];
-        self.0.read(&mut bytes).await?;
-
-        Ok((
-            Position::of(term, index),
-            8 + 8 + 8 + u64::try_from(bytes.len()).expect("Unable to convert"),
-            Payload::from(bytes),
-        ))
+    async fn entries(&self) -> Result<impl Stream<Item = Result<(Position, u64, Payload), Error>>, Error> {
+        Ok(FileEntries::new(self.0.try_clone().await?))
     }
 
-    async fn truncate(&mut self, len: u64) -> Result<(), std::io::Error> {
+    async fn truncate(&mut self, len: u64) -> Result<(), Error> {
         self.0.set_len(len).await?;
         self.0.sync_all().await?;
         self.0.seek(SeekFrom::End(0)).await?;
         self.1 = len;
         Ok(())
     }
+}
 
-    fn len(&self) -> u64 {
-        self.1
+struct FileEntries {
+    offset: u64,
+    reader: FramedRead<File, LengthDelimitedCodec>,
+}
+
+impl FileEntries {
+    fn new(file: File) -> Self {
+        let reader = LengthDelimitedCodec::builder()
+            .length_field_offset(0)
+            .length_field_length(size_of::<u64>())
+            .little_endian()
+            .new_read(file);
+        FileEntries { offset: 0, reader }
+    }
+}
+
+impl Stream for FileEntries {
+    type Item = Result<(Position, u64, Payload), Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.reader.poll_next_unpin(cx) {
+            Poll::Ready(Some(result)) => {
+                let mapped = result.map(|mut bytes| {
+                    let position = Position::of(bytes.get_u64_le(), bytes.get_u64_le());
+                    let offset = self.offset;
+                    let payload = Payload(bytes.freeze());
+
+                    self.offset += u64::try_from(size_of::<u64>()).expect("Unable to convert") * 3 + payload.len();
+
+                    (position, offset, payload)
+                });
+                Poll::Ready(Some(mapped))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -473,7 +502,9 @@ mod tests {
         storage.extend(NonZeroU64::new(1).unwrap(), entries(2)).await;
         storage.extend(NonZeroU64::new(10).unwrap(), entries(10)).await;
 
-        let entries = Pin::from(storage.entries(Position::of(0, 0))).collect::<Vec<_>>().await;
+        let entries = Pin::from(storage.entries(Position::initial()))
+            .collect::<Vec<_>>()
+            .await;
         assert_eq!(
             entries,
             vec![
@@ -493,6 +524,35 @@ mod tests {
             .collect::<Vec<_>>()
             .await;
         assert!(entries.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_persistence() {
+        let directory = EphemeralDirectory::new();
+
+        {
+            let mut storage = FileLog::init(&directory).await.unwrap();
+
+            storage.extend(NonZeroU64::new(1).unwrap(), entries(1)).await;
+            storage.extend(NonZeroU64::new(1).unwrap(), entries(2)).await;
+            storage.extend(NonZeroU64::new(10).unwrap(), entries(10)).await;
+        }
+
+        {
+            let storage = FileLog::init(&directory).await.unwrap();
+
+            let entries = Pin::from(storage.entries(Position::initial()))
+                .collect::<Vec<_>>()
+                .await;
+            assert_eq!(
+                entries,
+                vec![
+                    (Position::of(1, 0), bytes(1)),
+                    (Position::of(1, 1), bytes(2)),
+                    (Position::of(10, 0), bytes(10))
+                ]
+            );
+        }
     }
 
     fn entries(value: u8) -> Vec<Payload> {

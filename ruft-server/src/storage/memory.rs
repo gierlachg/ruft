@@ -330,7 +330,9 @@ mod tests {
         storage.extend(NonZeroU64::new(1).unwrap(), entries(2)).await;
         storage.extend(NonZeroU64::new(10).unwrap(), entries(10)).await;
 
-        let entries = Pin::from(storage.entries(Position::of(0, 0))).collect::<Vec<_>>().await;
+        let entries = Pin::from(storage.entries(Position::initial()))
+            .collect::<Vec<_>>()
+            .await;
         assert_eq!(
             entries,
             vec![
