@@ -3,17 +3,14 @@ use std::io::{Error, SeekFrom};
 use std::mem::size_of;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use bytes::Buf;
-use futures::StreamExt;
-use tokio::fs::File;
+use futures::{StreamExt, TryStreamExt};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
-use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
+use tokio_util::codec::LengthDelimitedCodec;
 
 use crate::storage::{Entries, Log, State};
 use crate::{Payload, Position};
@@ -113,12 +110,7 @@ impl Log for FileLog {
     }
 
     async fn extend(&mut self, term: NonZeroU64, entries: Vec<Payload>) -> Position {
-        assert!(
-            term.get() >= self.head().term(),
-            "{} - {}",
-            term.get(),
-            self.head().term()
-        );
+        assert!(term.get() >= self.head().term());
 
         if !entries.is_empty() {
             let mut file = self.file.lock().await;
@@ -217,7 +209,22 @@ impl SequentialFile {
     }
 
     async fn entries(&self) -> Result<impl Stream<Item = Result<(Position, u64, Payload), Error>>, Error> {
-        Ok(FileEntries::new(self.0.try_clone().await?))
+        let mut file_offset = 0;
+        let entries = LengthDelimitedCodec::builder()
+            .length_field_offset(0)
+            .length_field_length(size_of::<u64>())
+            .little_endian()
+            .new_read(self.0.try_clone().await?)
+            .map_ok(move |mut bytes| {
+                let position = Position::of(bytes.get_u64_le(), bytes.get_u64_le());
+                let offset = file_offset;
+                let payload = Payload(bytes.freeze());
+
+                file_offset += u64::try_from(size_of::<u64>()).expect("Unable to convert") * 3 + payload.len();
+
+                (position, offset, payload)
+            });
+        Ok(entries)
     }
 
     async fn truncate(&mut self, len: u64) -> Result<(), Error> {
@@ -226,45 +233,6 @@ impl SequentialFile {
         self.0.seek(SeekFrom::End(0)).await?;
         self.1 = len;
         Ok(())
-    }
-}
-
-struct FileEntries {
-    offset: u64,
-    reader: FramedRead<File, LengthDelimitedCodec>,
-}
-
-impl FileEntries {
-    fn new(file: File) -> Self {
-        let reader = LengthDelimitedCodec::builder()
-            .length_field_offset(0)
-            .length_field_length(size_of::<u64>())
-            .little_endian()
-            .new_read(file);
-        FileEntries { offset: 0, reader }
-    }
-}
-
-impl Stream for FileEntries {
-    type Item = Result<(Position, u64, Payload), Error>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.reader.poll_next_unpin(cx) {
-            Poll::Ready(Some(result)) => {
-                let mapped = result.map(|mut bytes| {
-                    let position = Position::of(bytes.get_u64_le(), bytes.get_u64_le());
-                    let offset = self.offset;
-                    let payload = Payload(bytes.freeze());
-
-                    self.offset += u64::try_from(size_of::<u64>()).expect("Unable to convert") * 3 + payload.len();
-
-                    (position, offset, payload)
-                });
-                Poll::Ready(Some(mapped))
-            }
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
     }
 }
 
